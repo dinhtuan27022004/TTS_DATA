@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Data files (too large for git)
+data/
+artifact/
+Youtube_Data/
+Craw_data/Youtube_Data/
+
+# Processed data (large files, lots of text/audio)
+Processed_DATA/
+
+# Model weights & checkpoints
+models/
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+
+# Audio output files
+*.wav
+*.mp3
+*.flac
+
+# Large data formats
+*.parquet
+*.arrow
+*.h5
+*.hdf5
+
+# Excel temp files
+~$*.xlsx
+
+# Pytest
+.pytest_cache/
+tests/__pycache__/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Kiro cache
+.kiro/
+
+# Debug output
+Craw_data/debug_phase1_result.json
+
+# Jupyter Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/
+
+# Wandb
+wandb/

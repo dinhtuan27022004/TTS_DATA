@@ -1,0 +1,77 @@
+# ============================================================
+# requirements.txt — TTS-DATA Project
+# Bao gồm tất cả dependencies cho toàn bộ pipeline:
+#   Phase 1-5: Crawl → Download → Music Removal → Transcribe → Segment
+#   Preprocess: Parquet → WAV pairs / metadata.csv
+#   Evaluate:   MCD, PESQ, STOI, UTMOS, F0, WER/CER
+#   F5-TTS:     Fine-tuning & Inference
+# ============================================================
+
+# ─── Core / Utility ──────────────────────────────────────────
+numpy<=1.26.4                  # pin để tránh xung đột với torch/librosa
+tqdm>=4.65.0
+pandas>=2.0
+openpyxl>=3.1                  # đọc/ghi .xlsx (Phase 1)
+
+# ─── Audio I/O & Processing ──────────────────────────────────
+librosa>=0.10
+soundfile>=0.12
+# torchaudio: xem phần Deep Learning bên dưới (pin version)
+pydub                          # F5-TTS audio utils
+
+# ─── Deep Learning ───────────────────────────────────────────
+torch==2.1.0                   # pin version để tránh NeMo downgrade
+torchaudio==2.1.0              # phải khớp với torch
+accelerate>=0.33.0
+safetensors
+transformers
+transformers_stream_generator
+
+# ─── Phase 1: URL Collection ─────────────────────────────────
+requests>=2.31               # HTTP client cho HTML parser (thay scrapetube)
+
+# ─── Phase 2: Audio Download ─────────────────────────────────
+yt-dlp>=2024.1                 # tải audio từ YouTube, convert → WAV
+
+# ─── Phase 3: Music Removal (Demucs) ─────────────────────────
+demucs>=4.0                    # Facebook Demucs - tách vocals/nhạc nền
+
+# ─── Phase 4: Transcription (NeMo ASR) ───────────────────────
+Cython                         # bắt buộc để build NeMo extensions
+nemo_toolkit[asr]>=1.22        # nvidia/parakeet-ctc-0.6b-vi
+
+# ─── Phase 5: Audio Segmentation ─────────────────────────────
+# (dùng soundfile, numpy — đã có ở trên)
+
+# ─── Preprocess: Dataset Download & Processing ───────────────
+datasets                       # Hugging Face datasets (load_dataset, parquet)
+huggingface_hub                # snapshot_download
+
+# ─── Evaluate: Metrics ───────────────────────────────────────
+pesq>=0.0.4                    # PESQ (Perceptual Evaluation of Speech Quality)
+pystoi>=0.3.3                  # STOI (Short-Time Objective Intelligibility)
+jiwer>=3.0                     # WER / CER computation
+scipy>=1.10                    # F0 correlation (scipy.stats.pearsonr)
+matplotlib>=3.7                # Visualizer — biểu đồ PNG
+
+# ─── F5-TTS Fine-tuning & Inference ──────────────────────────
+ema_pytorch>=0.5.2
+hydra-core>=1.3.0
+jieba                          # Chinese tokenizer (required by F5-TTS)
+pypinyin                       # Pinyin conversion (required by F5-TTS)
+tomli                          # TOML parser
+torchdiffeq                    # ODE solver for flow matching
+vocos                          # Vocoder
+wandb                          # Experiment tracking
+x_transformers>=1.31.14        # Transformer building blocks
+cached_path                    # Remote path caching
+click                          # CLI utilities
+gradio>=3.45.2                 # Gradio UI (inference demo)
+bitsandbytes>0.37.0; platform_machine != "arm64" and platform_system != "Darwin"
+
+# ─── Optional: F5-TTS Eval extras ────────────────────────────
+# faster_whisper==0.10.1       # ASR cho eval (F5-TTS eval mode)
+# funasr                       # FunASR (Chinese eval)
+# modelscope                   # ModelScope integration
+# zhconv                       # Traditional/Simplified Chinese conversion
+# zhon                         # Chinese character detection
