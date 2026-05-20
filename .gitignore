@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+model.pt
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment variables
+.env
+
+# Data files (too large for git)
+data/
+artifact/
+Youtube_Data/
+Craw_data/Youtube_Data/
+
+# Excel temp files
+~$*.xlsx
+
+# Pytest
+.pytest_cache/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Kiro cache
+.kiro/
+
+# Debug output
+Craw_data/debug_phase1_result.json
+Processed_DATA/

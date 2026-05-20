@@ -1,0 +1,12 @@
+yt-dlp>=2024.1
+openpyxl>=3.1
+pandas>=2.0
+matplotlib>=3.7
+requests>=2.31
+demucs>=4.0
+nemo_toolkit[asr]>=1.22
+librosa>=0.10
+soundfile>=0.12
+# scrapetube>=2.5  # không còn dùng, thay bằng HTML parser
+tqdm>=4.65
+torch>=2.0

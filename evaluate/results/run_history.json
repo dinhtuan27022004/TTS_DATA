@@ -1,0 +1,58 @@
+[
+  {
+    "model_name": "F5-TTS-V0",
+    "metric_name": "mcd",
+    "start_time": "2026-05-17T22:55:05.596385",
+    "end_time": "2026-05-17T22:55:05.597058",
+    "num_samples": 11600,
+    "status": "completed"
+  },
+  {
+    "model_name": "F5-TTS-V0",
+    "metric_name": "pesq",
+    "start_time": "2026-05-17T22:55:05.740332",
+    "end_time": "2026-05-17T22:55:05.740350",
+    "num_samples": 11600,
+    "status": "completed"
+  },
+  {
+    "model_name": "F5-TTS-V0",
+    "metric_name": "stoi",
+    "start_time": "2026-05-17T22:55:05.850985",
+    "end_time": "2026-05-17T22:55:05.850996",
+    "num_samples": 11600,
+    "status": "completed"
+  },
+  {
+    "model_name": "F5-TTS-V0",
+    "metric_name": "utmos",
+    "start_time": "2026-05-17T22:55:05.955693",
+    "end_time": "2026-05-17T22:55:05.955713",
+    "num_samples": 11600,
+    "status": "completed"
+  },
+  {
+    "model_name": "F5-TTS-V0",
+    "metric_name": "f0_correlation",
+    "start_time": "2026-05-17T22:55:06.054197",
+    "end_time": "2026-05-17T22:55:06.054206",
+    "num_samples": 11600,
+    "status": "completed"
+  },
+  {
+    "model_name": "F5-TTS-V0",
+    "metric_name": "wer",
+    "start_time": "2026-05-17T22:55:06.198243",
+    "end_time": "2026-05-17T22:55:06.198256",
+    "num_samples": 11600,
+    "status": "completed"
+  },
+  {
+    "model_name": "F5-TTS-V0",
+    "metric_name": "cer",
+    "start_time": "2026-05-17T22:55:06.303288",
+    "end_time": "2026-05-17T22:55:06.303302",
+    "num_samples": 11600,
+    "status": "completed"
+  }
+]
