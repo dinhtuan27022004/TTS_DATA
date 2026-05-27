@@ -41,3 +41,7 @@ Thumbs.db
 # Debug output
 Craw_data/debug_phase1_result.json
 Processed_DATA/
+
+# Large Model Files
+models/chunkformer/
+

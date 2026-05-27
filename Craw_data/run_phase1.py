@@ -58,13 +58,15 @@ def plot_channel_distribution(df):
 
 
 def main():
+    import sys
+    sys.stdout.reconfigure(encoding='utf-8')
     print("=== Phase 1: Sequential URL Collection (HTML Parser) ===")
 
     # -------------------------------------------------------------------------
     # Cấu hình thu thập — chỉnh theo nhu cầu
     # -------------------------------------------------------------------------
-    MAX_URL_TOTAL       = 10000   # Tổng URL tối đa cần thu thập
-    MAX_URL_PER_CHANNEL = 200    # URL tối đa lấy từ mỗi kênh
+    MAX_URL_TOTAL       = 1   # Tổng URL tối đa cần thu thập
+    MAX_URL_PER_CHANNEL = 1  # URL tối đa lấy từ mỗi kênh
     TIMEOUT_PER_CHANNEL = 120.0  # Giây timeout mỗi kênh
     REQUEST_TIMEOUT     = 30.0   # Giây timeout mỗi HTTP request
 
@@ -72,8 +74,9 @@ def main():
         input_excel_path="Craw_data/Begin.xlsx",
         output_excel_path="Craw_data/Youtube_Data/video_urls.xlsx",
         max_url=MAX_URL_TOTAL,
-        max_per_channel=MAX_URL_PER_CHANNEL,
-        channel_timeout=TIMEOUT_PER_CHANNEL,
+        max_url_per_channel=MAX_URL_PER_CHANNEL,
+        timeout_per_channel=TIMEOUT_PER_CHANNEL,
+        request_timeout=REQUEST_TIMEOUT,
     )
 
     df = collector.collect_urls()

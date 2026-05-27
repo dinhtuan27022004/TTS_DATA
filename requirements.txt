@@ -1,7 +1,7 @@
 # ============================================================
 # requirements.txt — TTS-DATA Project
 # Bao gồm tất cả dependencies cho toàn bộ pipeline:
-#   Phase 1-5: Crawl → Download → Music Removal → Transcribe → Segment
+#   Phase 1-5: Crawl → Download → Music Removal → Transcribe (WeNet/NeMo) → Segment
 #   Preprocess: Parquet → WAV pairs / metadata.csv
 #   Evaluate:   MCD, PESQ, STOI, UTMOS, F0, WER/CER
 #   F5-TTS:     Fine-tuning & Inference
@@ -12,15 +12,15 @@ numpy<=1.26.4                  # pin để tránh xung đột với torch/libros
 tqdm>=4.65.0
 pandas>=2.0
 openpyxl>=3.1                  # đọc/ghi .xlsx (Phase 1)
+requests>=2.31
 
 # ─── Audio I/O & Processing ──────────────────────────────────
 librosa>=0.10
 soundfile>=0.12
-# torchaudio: xem phần Deep Learning bên dưới (pin version)
 pydub                          # F5-TTS audio utils
 
 # ─── Deep Learning ───────────────────────────────────────────
-torch==2.1.0                   # pin version để tránh NeMo downgrade
+torch==2.1.0                   # pin version để tránh NeMo/WeNet downgrade
 torchaudio==2.1.0              # phải khớp với torch
 accelerate>=0.33.0
 safetensors
@@ -36,9 +36,10 @@ yt-dlp>=2024.1                 # tải audio từ YouTube, convert → WAV
 # ─── Phase 3: Music Removal (Demucs) ─────────────────────────
 demucs>=4.0                    # Facebook Demucs - tách vocals/nhạc nền
 
-# ─── Phase 4: Transcription (NeMo ASR) ───────────────────────
+# ─── Phase 4: Transcription (WeNet / NeMo ASR) ───────────────
 Cython                         # bắt buộc để build NeMo extensions
 nemo_toolkit[asr]>=1.22        # nvidia/parakeet-ctc-0.6b-vi
+wenet>=1.0.0                   # Dành cho model chunkformer (/models/chunkformer)
 
 # ─── Phase 5: Audio Segmentation ─────────────────────────────
 # (dùng soundfile, numpy — đã có ở trên)
@@ -68,10 +69,3 @@ cached_path                    # Remote path caching
 click                          # CLI utilities
 gradio>=3.45.2                 # Gradio UI (inference demo)
 bitsandbytes>0.37.0; platform_machine != "arm64" and platform_system != "Darwin"
-
-# ─── Optional: F5-TTS Eval extras ────────────────────────────
-# faster_whisper==0.10.1       # ASR cho eval (F5-TTS eval mode)
-# funasr                       # FunASR (Chinese eval)
-# modelscope                   # ModelScope integration
-# zhconv                       # Traditional/Simplified Chinese conversion
-# zhon                         # Chinese character detection

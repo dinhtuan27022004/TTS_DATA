@@ -67,6 +67,12 @@ def expand_model_embeddings(ckpt_path: str, new_ckpt_path: str, num_new_tokens: 
         return new_embeddings
 
     ema_sd[embed_key_ema] = expand_embeddings(ema_sd[embed_key_ema])
+    
+    # Xoá thông tin update/step và optimizer/scheduler cũ để quá trình fine-tuning bắt đầu từ step 0
+    for key in ["update", "step", "optimizer_state_dict", "scheduler_state_dict"]:
+        if key in ckpt:
+            del ckpt[key]
+
     torch.save(ckpt, new_ckpt_path)
 
 
@@ -75,7 +81,7 @@ if __name__ == "__main__":
     set_random_seed(SEED)
 
     # Đường dẫn file vocab
-    TOKEN_PRETRAINED_PATH = "/home/thor/Tuan/TTS-DATA/models/f5-tts-v0/vocab.txt"
+    TOKEN_PRETRAINED_PATH = "../models/f5-tts-v0/vocab.txt"
     TOKEN_NEW_PATH = "data/your_training_dataset/vocab.txt"
 
     # Load vocab
@@ -86,7 +92,7 @@ if __name__ == "__main__":
     vocab_size_new = len(tokens_new) - len(tokens_pretrained)
 
     # Đường dẫn checkpoint
-    ckpt_path = "/home/thor/Tuan/TTS-DATA/models/f5-tts-v0/model.pt"
+    ckpt_path = "../models/f5-tts-v0/model.pt"
     new_ckpt_path = "ckpts/your_training_dataset/pretrained_model.pt"
 
     # Mở rộng embedding

@@ -20,8 +20,8 @@ def main():
     print("=== Phase 3: Music Removal (Demucs) ===")
 
     remover = MusicRemover(
-        input_dir="Youtube_Data/Step_0",
-        output_dir="Youtube_Data/Step_1"
+        input_dir="Craw_data/Youtube_Data/Step_0",
+        output_dir="Craw_data/Youtube_Data/Step_1"
     )
 
     processed = remover.process_all()

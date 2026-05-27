@@ -6,7 +6,7 @@ Mục tiêu: Đảm bảo bộ vocab bao phủ đầy đủ token của Tiếng 
 import os
 
 # Định nghĩa đường dẫn file vocab
-PRETRAINED_VOCAB_PATH = "/home/thor/Tuan/TTS-DATA/models/f5-tts-v0/vocab.txt"
+PRETRAINED_VOCAB_PATH = "../models/f5-tts-v0/vocab.txt"
 DATASET_VOCAB_PATH = "data/your_training_dataset/vocab_your_dataset.txt"
 OUTPUT_VOCAB_PATH = "data/your_training_dataset/vocab.txt"
 

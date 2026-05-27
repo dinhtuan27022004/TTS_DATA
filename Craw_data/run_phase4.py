@@ -20,8 +20,8 @@ def main():
     print("=== Phase 4: Transcription (Parakeet CTC) ===")
 
     transcriber = Transcriber(
-        input_dir="Youtube_Data/Step_1",
-        model_name="nvidia/parakeet-ctc-0.6b-vi"
+        input_dir="Craw_data/Youtube_Data/Step_1",
+        model_name="/media/thor/data/TTS-DATA/models/chunkformer"
     )
 
     results = transcriber.transcribe_all()

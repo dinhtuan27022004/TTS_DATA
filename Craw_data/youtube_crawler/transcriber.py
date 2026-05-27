@@ -52,23 +52,29 @@ class Transcriber:
 
     def _load_model(self):
         """
-        Load model nvidia/parakeet-ctc-0.6b-vi bằng NeMo toolkit.
+        Load model bằng NeMo toolkit hoặc WeNet toolkit.
         Tự động chọn GPU nếu có.
         """
-        import nemo.collections.asr as nemo_asr
-
-        logger.info(f"Đang load model: {self.model_name}...")
-        self.model = nemo_asr.models.EncDecCTCModel.from_pretrained(self.model_name)
-
-        # Chuyển sang GPU nếu có
-        if torch.cuda.is_available():
-            self.model = self.model.cuda()
-            logger.info("Sử dụng GPU (CUDA) cho transcription")
+        if "chunkformer" in self.model_name:
+            import wenet
+            logger.info(f"Đang load WeNet model từ: {self.model_name}...")
+            # WeNet load_model handles CPU/GPU usage internally
+            self.model = wenet.load_model(model_dir=self.model_name)
+            logger.info(f"WeNet Model {self.model_name} đã load thành công!")
         else:
-            logger.info("Sử dụng CPU cho transcription")
+            import nemo.collections.asr as nemo_asr
+            logger.info(f"Đang load NeMo model: {self.model_name}...")
+            self.model = nemo_asr.models.EncDecCTCModel.from_pretrained(self.model_name)
 
-        self.model.eval()
-        logger.info(f"Model {self.model_name} đã load thành công!")
+            # Chuyển sang GPU nếu có
+            if torch.cuda.is_available():
+                self.model = self.model.cuda()
+                logger.info("Sử dụng GPU (CUDA) cho transcription")
+            else:
+                logger.info("Sử dụng CPU cho transcription")
+
+            self.model.eval()
+            logger.info(f"Model {self.model_name} đã load thành công!")
 
     def transcribe_all(self) -> List[TranscriptionResult]:
         """
@@ -137,58 +143,169 @@ class Transcriber:
         logger.info(f"Hoàn thành! Đã transcribe {len(results)} files mới.")
         return results
 
-    def _transcribe_single(self, wav_path: str) -> Optional[TranscriptionResult]:
-        """
-        Transcribe 1 file WAV, trả về text + word-level timestamps.
+    # def _transcribe_single(self, wav_path: str) -> Optional[TranscriptionResult]:
+    #     """
+    #     Transcribe 1 file WAV, trả về text + word-level timestamps.
         
-        Sử dụng return_hypotheses=True để lấy thông tin timestep từ CTC.
-        Sau đó nhóm characters thành words dựa trên khoảng trắng.
+    #     Sử dụng return_hypotheses=True để lấy thông tin timestep từ CTC.
+    #     Sau đó nhóm characters thành words dựa trên khoảng trắng.
         
-        Args:
-            wav_path: Đường dẫn file WAV
+    #     Args:
+    #         wav_path: Đường dẫn file WAV
             
-        Returns:
-            TranscriptionResult hoặc None nếu không có speech
-        """
-        import soundfile as sf
+    #     Returns:
+    #         TranscriptionResult hoặc None nếu không có speech
+    #     """
+    #     import soundfile as sf
 
-        # Lấy duration của file audio
+    #     # Lấy duration của file audio
+    #     info = sf.info(wav_path)
+    #     duration = info.duration
+
+    #     # Transcribe với return_hypotheses=True để lấy timestep info
+    #     hypotheses = self.model.transcribe(
+    #         [wav_path],
+    #         return_hypotheses=True,
+    #         batch_size=1
+    #     )
+
+    #     # hypotheses là list of Hypothesis objects
+    #     if not hypotheses or len(hypotheses) == 0:
+    #         return None
+
+    #     # Lấy hypothesis đầu tiên (chỉ có 1 file)
+    #     hypothesis = hypotheses[0]
+
+    #     # Lấy full text
+    #     if hasattr(hypothesis, 'text'):
+    #         full_text = hypothesis.text
+    #     else:
+    #         full_text = str(hypothesis)
+
+    #     if not full_text or not full_text.strip():
+    #         return None
+
+    #     # Trích xuất word-level timestamps từ CTC alignment
+    #     word_timestamps = self._extract_word_timestamps(hypothesis, duration)
+
+    #     return TranscriptionResult(
+    #         wav_path=wav_path,
+    #         full_text=full_text,
+    #         word_timestamps=word_timestamps,
+    #         duration=duration
+    #     )
+    
+    def _transcribe_single(
+        self,
+        wav_path: str
+    ) -> Optional[TranscriptionResult]:
+
+        import soundfile as sf
+        import librosa
+        import tempfile
+
         info = sf.info(wav_path)
         duration = info.duration
 
-        # Transcribe với return_hypotheses=True để lấy timestep info
-        hypotheses = self.model.transcribe(
-            [wav_path],
-            return_hypotheses=True,
-            batch_size=1
-        )
+        # convert mono nếu cần
+        if info.channels > 1:
+            logger.info(
+                f"Đang convert {os.path.basename(wav_path)} "
+                f"từ {info.channels} kênh sang mono..."
+            )
 
-        # hypotheses là list of Hypothesis objects
-        if not hypotheses or len(hypotheses) == 0:
+            data, samplerate = sf.read(wav_path)
+            mono_data = data.mean(axis=1)
+
+            sf.write(wav_path, mono_data, samplerate)
+
+        # load toàn bộ audio
+        audio, sr = librosa.load(wav_path, sr=16000)
+
+        chunk_sec = 20
+        overlap_sec = 5
+
+        chunk_size = int(chunk_sec * sr)
+        stride = int((chunk_sec - overlap_sec) * sr)
+
+        all_texts = []
+        all_word_timestamps = []
+
+        for start in range(0, len(audio), stride):
+
+            end = start + chunk_size
+
+            chunk = audio[start:end]
+
+            # bỏ chunk quá ngắn
+            if len(chunk) < sr:
+                continue
+
+            # Tính offset thực tế dựa vào vị trí chunk trong audio
+            current_offset = start / sr
+
+            with tempfile.NamedTemporaryFile(
+                suffix=".wav",
+                delete=False
+            ) as tmp:
+
+                sf.write(tmp.name, chunk, sr)
+
+                try:
+
+                    with torch.no_grad():
+                        if "chunkformer" in self.model_name:
+                            # WeNet transcribe takes a single wave file path and returns a result object
+                            result = self.model.transcribe(tmp.name)
+                            hypotheses = [result] if result else None
+                        else:
+                            hypotheses = self.model.transcribe(
+                                [tmp.name],
+                                return_hypotheses=True,
+                                batch_size=1
+                            )
+
+                    if not hypotheses:
+                        continue
+
+                    hypothesis = hypotheses[0]
+
+                    if hasattr(hypothesis, 'text'):
+                        text = hypothesis.text
+                    else:
+                        text = str(hypothesis)
+
+                    if text.strip():
+
+                        all_texts.append(text)
+
+                        word_timestamps = self._extract_word_timestamps(
+                            hypothesis,
+                            chunk_sec
+                        )
+
+                        # cộng offset thời gian
+                        for w in word_timestamps:
+                            w.start_time += current_offset
+                            w.end_time += current_offset
+
+                        all_word_timestamps.extend(word_timestamps)
+
+                finally:
+                    os.remove(tmp.name)
+
+        if not all_texts:
             return None
 
-        # Lấy hypothesis đầu tiên (chỉ có 1 file)
-        hypothesis = hypotheses[0]
-
-        # Lấy full text
-        if hasattr(hypothesis, 'text'):
-            full_text = hypothesis.text
-        else:
-            full_text = str(hypothesis)
-
-        if not full_text or not full_text.strip():
-            return None
-
-        # Trích xuất word-level timestamps từ CTC alignment
-        word_timestamps = self._extract_word_timestamps(hypothesis, duration)
+        full_text = " ".join(all_texts)
 
         return TranscriptionResult(
             wav_path=wav_path,
             full_text=full_text,
-            word_timestamps=word_timestamps,
+            word_timestamps=all_word_timestamps,
             duration=duration
         )
-
+    
     def _extract_word_timestamps(
         self, hypothesis, audio_duration: float
     ) -> List[WordTimestamp]:

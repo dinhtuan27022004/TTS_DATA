@@ -3,6 +3,9 @@
 # Thiết lập GPU sử dụng
 export CUDA_VISIBLE_DEVICES=0 # 0 nếu như bạn có GPU của nvidia :v
 
+# Thêm thư mục src vào PYTHONPATH để tránh lỗi ModuleNotFoundError
+export PYTHONPATH=src:$PYTHONPATH
+
 log() {
     echo "$@"
 }
@@ -22,10 +25,10 @@ WARMUP_UPDATES=20000
 SAVE_UPDATES=10000
 LAST_UPDATES=10000
 EPOCHS=10 # <-- Bạn có thể chỉnh sửa số vòng lặp tại đây
-PRETRAIN_CKPT="/home/thor/Tuan/TTS-DATA/models/f5-tts-v0/model.pt"
+PRETRAIN_CKPT="ckpts/your_training_dataset/pretrained_model.pt"
 
 # Tạo các biến stage để quản lý pipeline, bước nào đã chạy rồi thì không cần chạy lại
-stage=1
+stage=5
 stop_stage=5
 
 # Chuẩn hoá sample_rate, bỏ qua stage này nếu audio của bạn đã ở định dạng 24Khz
