@@ -7,7 +7,7 @@ Trích xuất word-level timestamps từ CTC model output.
 import os
 import json
 import logging
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -37,30 +37,48 @@ class Transcriber:
     def __init__(
         self,
         input_dir: str = "Youtube_Data/Step_1",
-        model_name: str = "nvidia/parakeet-ctc-0.6b-vi"
+        model_name: str = "nvidia/parakeet-ctc-0.6b-vi",
+        use_punctuation: bool = True,
+        pause_threshold: float = 0.05
     ):
         """
         Args:
             input_dir: Thư mục Step_1 chứa vocals WAV
             model_name: Tên model NeMo ASR
+            use_punctuation: Bật model phục hồi dấu câu
+            pause_threshold: Ngưỡng thời gian (giây) để giữ lại dấu câu
         """
         self.input_dir = input_dir
         self.model_name = model_name
+        self.use_punctuation = use_punctuation
+        self.pause_threshold = pause_threshold
 
         # Model sẽ được load khi cần (lazy loading)
         self.model = None
+        self.punct_model = None
 
     def _load_model(self):
         """
-        Load model bằng NeMo toolkit hoặc WeNet toolkit.
+        Load model bằng NeMo toolkit hoặc ChunkFormer.
         Tự động chọn GPU nếu có.
         """
-        if "chunkformer" in self.model_name:
-            import wenet
-            logger.info(f"Đang load WeNet model từ: {self.model_name}...")
-            # WeNet load_model handles CPU/GPU usage internally
-            self.model = wenet.load_model(model_dir=self.model_name)
-            logger.info(f"WeNet Model {self.model_name} đã load thành công!")
+        if torch.cuda.is_available():
+            try:
+                # Thiết lập giới hạn VRAM 5GB
+                total_memory = torch.cuda.get_device_properties(0).total_memory
+                target_memory = 5 * 1024**3  # 5 GB
+                if target_memory < total_memory:
+                    fraction = target_memory / total_memory
+                    torch.cuda.set_per_process_memory_fraction(fraction, 0)
+                    logger.info(f"Đã giới hạn VRAM ở mức 5GB ({(fraction*100):.1f}% của GPU)")
+            except Exception as e:
+                logger.warning(f"Không thể thiết lập giới hạn VRAM: {e}")
+
+        if "chunkformer" in self.model_name.lower():
+            from chunkformer import ChunkFormerModel
+            logger.info(f"Đang load ChunkFormer model từ: {self.model_name}...")
+            self.model = ChunkFormerModel.from_pretrained(self.model_name)
+            logger.info(f"ChunkFormer Model {self.model_name} đã load thành công!")
         else:
             import nemo.collections.asr as nemo_asr
             logger.info(f"Đang load NeMo model: {self.model_name}...")
@@ -75,6 +93,13 @@ class Transcriber:
 
             self.model.eval()
             logger.info(f"Model {self.model_name} đã load thành công!")
+
+        if self.use_punctuation:
+            from transformers import pipeline
+            logger.info("Đang load Punctuation Model bmd1905/vietnamese-correction-v2...")
+            self.punct_model = pipeline("text2text-generation", model="bmd1905/vietnamese-correction-v2", device=0 if torch.cuda.is_available() else -1)
+            logger.info("Punctuation Model đã load thành công!")
+
 
     def transcribe_all(self) -> List[TranscriptionResult]:
         """
@@ -137,8 +162,22 @@ class Transcriber:
                     logger.info(f"[OK] {filename} - '{result.full_text[:50]}...'")
                 else:
                     logger.warning(f"[SKIP] Không có speech: {filename}")
+                
+                # Giải phóng VRAM sau mỗi file để tránh dồn bộ nhớ
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    
+            except RuntimeError as e:
+                if "CUDA out of memory" in str(e):
+                    logger.error(f"[CRITICAL] Hết VRAM (OOM) khi xử lý {filename}. Chương trình sẽ dừng lại!")
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    import sys
+                    sys.exit(1)
+                else:
+                    logger.error(f"[FAIL] Lỗi transcribe {filename}: {e}", exc_info=True)
             except Exception as e:
-                logger.error(f"[FAIL] Lỗi transcribe {filename}: {e}")
+                logger.error(f"[FAIL] Lỗi transcribe {filename}: {e}", exc_info=True)
 
         logger.info(f"Hoàn thành! Đã transcribe {len(results)} files mới.")
         return results
@@ -207,6 +246,72 @@ class Transcriber:
         info = sf.info(wav_path)
         duration = info.duration
 
+        if "chunkformer" in self.model_name.lower():
+            logger.info(f"Sử dụng endless_decode cho file: {os.path.basename(wav_path)}")
+            results = self.model.endless_decode(
+                audio_path=wav_path,
+                chunk_size=64,
+                left_context_size=128,
+                right_context_size=128,
+                total_batch_duration=120,
+                return_timestamps=True
+            )
+            
+            all_word_timestamps = []
+            full_text_parts = []
+            
+            for item in results:
+                text = item.get('decode', '')
+                if not text.strip(): continue
+                
+                full_text_parts.append(text)
+                
+                start_str = item.get('start', '00:00:00:000')
+                end_str = item.get('end', '00:00:00:000')
+                
+                def time_str_to_sec(t_str):
+                    parts = t_str.split(':')
+                    if len(parts) == 4:
+                        h, m, s, ms = parts
+                        return int(h)*3600 + int(m)*60 + int(s) + int(ms)/1000.0
+                    return 0.0
+                    
+                start_sec = time_str_to_sec(start_str)
+                end_sec = time_str_to_sec(end_str)
+                
+                words = text.strip().split()
+                if not words: continue
+                
+                total_chars = sum(len(w) for w in words)
+                if total_chars == 0: continue
+                
+                seg_duration = end_sec - start_sec
+                current_time = start_sec
+                
+                for w in words:
+                    w_duration = (len(w) / total_chars) * seg_duration
+                    all_word_timestamps.append(WordTimestamp(
+                        word=w,
+                        start_time=round(current_time, 3),
+                        end_time=round(current_time + w_duration, 3)
+                    ))
+                    current_time += w_duration
+            
+            if not full_text_parts:
+                return None
+                
+            full_text = " ".join(full_text_parts)
+            
+            if self.use_punctuation:
+                full_text, all_word_timestamps = self._restore_punctuation_and_verify(full_text, all_word_timestamps)
+                
+            return TranscriptionResult(
+                wav_path=wav_path,
+                full_text=full_text,
+                word_timestamps=all_word_timestamps,
+                duration=duration
+            )
+
         # convert mono nếu cần
         if info.channels > 1:
             logger.info(
@@ -254,16 +359,11 @@ class Transcriber:
                 try:
 
                     with torch.no_grad():
-                        if "chunkformer" in self.model_name:
-                            # WeNet transcribe takes a single wave file path and returns a result object
-                            result = self.model.transcribe(tmp.name)
-                            hypotheses = [result] if result else None
-                        else:
-                            hypotheses = self.model.transcribe(
-                                [tmp.name],
-                                return_hypotheses=True,
-                                batch_size=1
-                            )
+                        hypotheses = self.model.transcribe(
+                            [tmp.name],
+                            return_hypotheses=True,
+                            batch_size=1
+                        )
 
                     if not hypotheses:
                         continue
@@ -298,6 +398,9 @@ class Transcriber:
             return None
 
         full_text = " ".join(all_texts)
+        
+        if self.use_punctuation:
+            full_text, all_word_timestamps = self._restore_punctuation_and_verify(full_text, all_word_timestamps)
 
         return TranscriptionResult(
             wav_path=wav_path,
@@ -488,6 +591,134 @@ class Transcriber:
                     )
 
         return word_timestamps
+
+    def _restore_punctuation_and_verify(
+        self,
+        text: str,
+        word_timestamps: List[WordTimestamp]
+    ) -> Tuple[str, List[WordTimestamp]]:
+        """
+        Phục hồi dấu câu và viết hoa, xác minh dựa trên timestamps.
+        Đảm bảo không bị viết hoa ngẫu nhiên (chỉ viết hoa đầu câu).
+        """
+        if not self.punct_model or not text.strip() or not word_timestamps:
+            return text, word_timestamps
+            
+        logger.info("Đang phục hồi dấu câu và căn chỉnh...")
+        import re
+        
+        # Cắt nhỏ text để tránh vượt quá max_length của model
+        words = text.split()
+        chunk_size = 50
+        punctuated_chunks = []
+        
+        try:
+            for i in range(0, len(words), chunk_size):
+                chunk = " ".join(words[i:i+chunk_size])
+                res = self.punct_model(chunk, max_new_tokens=256)
+                if isinstance(res, list) and len(res) > 0 and 'generated_text' in res[0]:
+                    punctuated_chunks.append(res[0]['generated_text'])
+                else:
+                    punctuated_chunks.append(chunk)
+        except Exception as e:
+            logger.error(f"Lỗi khi chạy punctuation model: {e}")
+            return text, word_timestamps
+            
+        punctuated_text = " ".join(punctuated_chunks)
+        
+        # Alignment
+        orig_words = [wt.word for wt in word_timestamps]
+        punct_words = punctuated_text.split()
+        
+        def clean_word(w):
+            return re.sub(r'[^\w\s]', '', w).lower()
+            
+        orig_idx = 0
+        punct_idx = 0
+        verified_word_timestamps = []
+        
+        # Ngưỡng (s) để giữ lại dấu câu
+        # Dấu phẩy cần gap ít hơn dấu chấm
+        comma_threshold = 0.08
+        period_threshold = 0.15
+        
+        while orig_idx < len(orig_words) and punct_idx < len(punct_words):
+            o_word = orig_words[orig_idx]
+            p_word = punct_words[punct_idx]
+            
+            c_o = clean_word(o_word)
+            c_p = clean_word(p_word)
+            
+            # Khớp nếu từ gốc và từ LLM có chứa nhau (sau khi xóa dấu)
+            if c_o and c_p and (c_o == c_p or c_o in c_p or c_p in c_o):
+                wt = word_timestamps[orig_idx]
+                # Lưu ý: LLM có thể trả về viết hoa ngẫu nhiên, ta sẽ fix ở bước sau
+                
+                has_punct = bool(re.search(r'[.,!?]$', p_word))
+                
+                if has_punct:
+                    current_end = wt.end_time
+                    next_start = word_timestamps[orig_idx+1].start_time if orig_idx + 1 < len(word_timestamps) else current_end + 1.0
+                    gap = next_start - current_end
+                    
+                    is_comma = bool(re.search(r'[,]$', p_word))
+                    threshold = comma_threshold if is_comma else period_threshold
+                    
+                    if gap < threshold:
+                        # Khoảng lặng quá ngắn, bỏ dấu câu
+                        p_word = re.sub(r'[.,!?]+$', '', p_word)
+                        
+                verified_word_timestamps.append(WordTimestamp(
+                    word=p_word,
+                    start_time=wt.start_time,
+                    end_time=wt.end_time
+                ))
+                orig_idx += 1
+                punct_idx += 1
+            else:
+                if orig_idx + 1 < len(orig_words) and clean_word(orig_words[orig_idx+1]) == c_p:
+                    verified_word_timestamps.append(word_timestamps[orig_idx])
+                    orig_idx += 1
+                elif punct_idx + 1 < len(punct_words) and clean_word(punct_words[punct_idx+1]) == c_o:
+                    punct_idx += 1
+                else:
+                    verified_word_timestamps.append(word_timestamps[orig_idx])
+                    orig_idx += 1
+                    punct_idx += 1
+                    
+        # Append remaining words
+        while orig_idx < len(word_timestamps):
+            verified_word_timestamps.append(word_timestamps[orig_idx])
+            orig_idx += 1
+            
+        # Post-process Casing (Chuẩn hóa viết hoa)
+        # Bắt buộc chữ thường, chỉ viết hoa từ đầu tiên hoặc từ sau dấu chấm/hỏi/chấm than
+        capitalize_next = True
+        for i in range(len(verified_word_timestamps)):
+            w = verified_word_timestamps[i].word
+            
+            # Tách phần dấu câu ở cuối (nếu có) để xét viết hoa phần chữ
+            match = re.search(r'^(.+?)([.,!?]*)$', w)
+            if match:
+                core_word = match.group(1)
+                punct = match.group(2)
+                
+                if capitalize_next:
+                    core_word = core_word.capitalize()
+                    capitalize_next = False
+                else:
+                    core_word = core_word.lower()
+                    
+                w = core_word + punct
+                
+                # Nếu từ này kết thúc bằng dấu chấm/hỏi/chấm than, từ tiếp theo viết hoa
+                if re.search(r'[.!?]$', punct):
+                    capitalize_next = True
+                    
+            verified_word_timestamps[i].word = w
+            
+        new_full_text = " ".join([wt.word for wt in verified_word_timestamps])
+        return new_full_text, verified_word_timestamps
 
     def _timestamps_from_uniform_split(
         self, text: str, audio_duration: float

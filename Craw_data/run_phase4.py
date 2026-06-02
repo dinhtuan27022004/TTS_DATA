@@ -21,7 +21,7 @@ def main():
 
     transcriber = Transcriber(
         input_dir="Craw_data/Youtube_Data/Step_1",
-        model_name="/media/thor/data/TTS-DATA/models/chunkformer"
+        model_name="khanhld/chunkformer-ctc-large-vie"
     )
 
     results = transcriber.transcribe_all()

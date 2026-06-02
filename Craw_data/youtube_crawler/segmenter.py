@@ -253,15 +253,17 @@ class AudioSegmenter:
 
     def _find_cut_points(self, timestamps: List[WordTimestamp]) -> List[Tuple[float, float, str]]:
         """
-        Tìm điểm cắt tối ưu dựa trên word boundaries.
+        Tìm điểm cắt tối ưu dựa trên word boundaries và khoảng lặng (pauses).
         
         Thuật toán:
         - Duyệt qua từng word timestamp
-        - Mở rộng segment cho đến khi đạt max_duration hoặc hết timestamps
-        - Nếu segment đủ dài (>= min_duration) và có transcript -> giữ lại
+        - Mở rộng segment cho đến khi đạt max_duration
+        - Lùi lại (step back) từ điểm cuối để tìm khoảng lặng (gap > 0.05s) giữa các từ.
+        - Nếu tìm thấy khoảng lặng và segment vẫn đủ min_duration, cắt tại đó.
+        - Nếu không có khoảng lặng nào (đoạn nói liên tục), cắt tại điểm lớn nhất <= max_duration.
         - Nếu segment quá ngắn -> skip từ đầu, thử lại
         
-        QUAN TRỌNG: Điểm cắt luôn nằm tại word boundary (end_time của từ cuối)
+        QUAN TRỌNG: Tránh cắt đôi một cụm từ liên tục (gap = 0.0) nếu có thể.
         
         Args:
             timestamps: Danh sách WordTimestamp đã sắp xếp theo thời gian
@@ -274,15 +276,14 @@ class AudioSegmenter:
         if not timestamps:
             return segments
 
-        i = 0  # Index từ hiện tại
         n = len(timestamps)
+        i = 0  # Index từ hiện tại
 
         while i < n:
             segment_start = timestamps[i].start_time
-            segment_words = []
+            
+            # Mở rộng segment cho đến khi đạt max_duration
             j = i
-
-            # Mở rộng segment cho đến khi đạt max_duration hoặc hết timestamps
             while j < n:
                 word_end = timestamps[j].end_time
                 current_duration = word_end - segment_start
@@ -290,22 +291,41 @@ class AudioSegmenter:
                 # Dừng nếu thêm từ này sẽ vượt max_duration
                 if current_duration > self.max_duration:
                     break
-
-                segment_words.append(timestamps[j].word)
+                    
                 j += 1
 
-            # Kiểm tra segment có đủ dài không
             if j > i:
-                segment_end = timestamps[j - 1].end_time
+                best_cut_index = j - 1
+                
+                # Step back để tìm khoảng lặng (gap > 0.05s) tự nhiên
+                candidate = best_cut_index
+                while candidate >= i:
+                    duration = timestamps[candidate].end_time - segment_start
+                    if duration < self.min_duration:
+                        break # Không thể lùi thêm vì sẽ vi phạm min_duration
+                        
+                    if candidate + 1 < n:
+                        gap = timestamps[candidate+1].start_time - timestamps[candidate].end_time
+                        if gap > 0.05: # Found a natural pause
+                            best_cut_index = candidate
+                            break
+                    else:
+                        break # Từ cuối cùng rồi
+                    
+                    candidate -= 1
+                    
+                segment_end = timestamps[best_cut_index].end_time
                 duration = segment_end - segment_start
+                
+                segment_words = [t.word for t in timestamps[i:best_cut_index+1]]
                 transcript = " ".join(segment_words)
-
+                
                 # Segment hợp lệ: đủ dài VÀ có transcript
                 if duration >= self.min_duration and transcript.strip():
                     segments.append((segment_start, segment_end, transcript))
-                    i = j  # Tiến đến từ tiếp theo sau segment
+                    i = best_cut_index + 1
                 else:
-                    # Segment quá ngắn, skip từ đầu và thử lại
+                    # Segment quá ngắn (có thể do step back thất bại hoặc do file quá ngắn)
                     i += 1
             else:
                 # Không thêm được từ nào (từ đầu tiên đã vượt max_duration)
