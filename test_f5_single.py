@@ -14,7 +14,7 @@ model = F5TTSVietnamese(
 )
 
 audio, sr = model.synthesize(
-    gen_text="chỉ bằng cách luôn lỗ lực thì cuối cùng bạn mới được đền đáp",
+    gen_text="1241231",
     ref_text= "chỉ bằng cách luôn lỗ lực thì cuối cùng bạn mới được đền đáp", 
     ref_audio_path=os.path.join(
         os.path.dirname(os.path.abspath(__file__)),

@@ -45,3 +45,21 @@ Processed_DATA/
 # Large Model Files
 models/chunkformer/
 
+# Local test and scratch files
+TMP/
+scratch/
+test_amp.py
+test_chunk.py
+test_chunkformer.py
+test_demucs.py
+test_fp16.log
+test_fp16.py
+test_logic.py
+test_orig.py
+test_out.txt
+test_punct.py
+test_punct2.py
+test_punct3.py
+test_punct4.py
+test_repr.py
+yt_test.json

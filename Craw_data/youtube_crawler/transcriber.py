@@ -253,7 +253,7 @@ class Transcriber:
                 chunk_size=64,
                 left_context_size=128,
                 right_context_size=128,
-                total_batch_duration=120,
+                total_batch_duration=360,
                 return_timestamps=True
             )
             

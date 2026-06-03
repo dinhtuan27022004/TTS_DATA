@@ -64,10 +64,17 @@ def download_vietnam_celeb():
 def download_libritts():
     dataset_dir = os.path.join(target_dir, "libritts")
     os.makedirs(dataset_dir, exist_ok=True)
-    print("Downloading mythicinfinity/libritts (clean) ...")
-    ds = load_dataset("mythicinfinity/libritts", "clean", cache_dir=dataset_dir)
-    print("Download completed!")
-    return ds
+    print(f"Downloading mythicinfinity/libritts to {dataset_dir}/ ...")
+
+    snapshot_download(
+        repo_id="mythicinfinity/libritts",
+        repo_type="dataset",
+        local_dir=dataset_dir,
+        local_dir_use_symlinks=False,
+        resume_download=True,
+        token=HF_TOKEN
+    )
+    print("Download completed! All files are in", dataset_dir)
 
 
 class DatasetProcessor:
@@ -130,11 +137,6 @@ class DatasetProcessor:
                 raise ValueError(f"Unsupported file format: {first_file}")
                 
             print(f"Found {len(files)} files matching pattern '{self.file_pattern}' (Type: {file_type})")
-            ds = load_dataset(
-                file_type,
-                data_files=files,
-                split="train"
-            )
         else:
             parquet_files = glob.glob(
                 os.path.join(self.raw_data_dir, "**", "*.parquet"),
@@ -146,126 +148,138 @@ class DatasetProcessor:
             )
 
             if parquet_files:
-                print(f"Found {len(parquet_files)} parquet files")
-                ds = load_dataset(
-                    "parquet",
-                    data_files=parquet_files,
-                    split="train"
-                )
+                files = parquet_files
+                file_type = "parquet"
             elif arrow_files:
-                print(f"Found {len(arrow_files)} arrow files")
-                ds = load_dataset(
-                    "arrow",
-                    data_files=arrow_files,
-                    split="train"
-                )
+                files = arrow_files
+                file_type = "arrow"
             else:
                 print("No parquet or arrow files found")
                 return
+            print(f"Found {len(files)} {file_type} files")
+
+        files.sort() # Ensure consistent order
+
         stats_path = os.path.join(self.processed_dir, f"stats_{self.dataset_name}.json")
         processed_files = set()
 
-        # Resume: kiểm tra file đã xử lý
+        # Resume: kiểm tra file đã xử lý từ disk (source of truth)
         for f in os.listdir(self.wavs_dir):
             if f.endswith(".wav"):
                 processed_files.add(f)
-        print(f"Found {len(processed_files)} processed files")
+        print(f"Found {len(processed_files)} already processed files on disk")
 
-        # Load old stats if exists
+        # Stats: reset session counters mỗi lần chạy
+        # 'processed' lấy từ số file thực trên disk, không tin vào JSON cũ
         stats = {
             "total_seen": 0,
-            "processed": 0,
+            "processed": len(processed_files),  # Số file thực tế trên disk
             "duration_filtered": 0,
             "empty_text": 0,
             "errors": 0,
-            "skipped_existing": 0
+            "skipped_existing": len(processed_files)  # Ước tính ban đầu
         }
-        if os.path.exists(stats_path):
-            try:
-                with open(stats_path, "r", encoding="utf-8") as f:
-                    content = f.read().strip()
-                    if content:
-                        stats = json.loads(content)
-            except (json.JSONDecodeError, ValueError):
-                print(f"Warning: {stats_path} is empty or corrupted. Re-initializing stats.")
-
-        stats["total_seen"] = 0
-        stats["errors"] = 0
-        stats["skipped_existing"] = 0
-        stats["duration_filtered"] = 0
-        stats["empty_text"] = 0
+        print(f"Stats initialized: processed={stats['processed']} files on disk")
 
         metadata_path = os.path.join(self.output_dir, "metadata.csv")
 
-        for idx, item in enumerate(tqdm(ds)):
-            stats["total_seen"] += 1
-            filename = f"{self.dataset_name}_{idx:06d}.wav"
-
-            # Resume support
-            if filename in processed_files:
-                stats["skipped_existing"] += 1
+        # Process each file sequentially
+        for file_path in files:
+            print(f"\n--- Processing file: {file_path} ---")
+            try:
+                ds = load_dataset(file_type, data_files=[file_path], split="train")
+            except Exception as e:
+                print(f"Error loading {file_path}: {e}")
                 continue
+                
+            # Dùng full stem để tránh collision giữa các shard:
+            # train.clean.360-00062-of-00069.parquet → train_clean_360-00062-of-00069
+            stem = os.path.splitext(os.path.basename(file_path))[0]  # bỏ .parquet/.arrow
+            base_filename = stem.replace('.', '_')
+
+            for local_idx, item in enumerate(tqdm(ds, desc=f"Extracting {base_filename}")):
+                stats["total_seen"] += 1
+                # Format: libritts_train-00000-of-00500_000001.wav
+                filename = f"{self.dataset_name}_{base_filename}_{local_idx:06d}.wav"
+
+                # Resume support
+                if filename in processed_files:
+                    stats["skipped_existing"] += 1
+                    continue
+
+                try:
+                    audio = item["audio"]
+                    audio_array = np.asarray(
+                        audio["array"],
+                        dtype=np.float32
+                    )
+                    sr = audio["sampling_rate"]
+                    duration = len(audio_array) / sr
+
+                    # Duration filter
+                    if not (self.min_duration <= duration <= self.max_duration):
+                        stats["duration_filtered"] += 1
+                        continue
+
+                    text = item.get(self.text_column)
+                    if text is None:
+                        # Fallback cho LibriTTS
+                        text = item.get("text_normalized") or item.get("text_original")
+                    text = str(text or "").strip()
+                    # Empty text
+                    if not text:
+                        stats["empty_text"] += 1
+                        continue
+
+                    final_duration = self.save_audio(audio_array, sr, filename)
+
+                    if self.output_format == "pairs":
+                        # Lưu file .txt cùng tên với .wav
+                        txt_filename = filename.replace(".wav", ".txt")
+                        txt_path = os.path.join(self.wavs_dir, txt_filename)
+                        with open(txt_path, "w", encoding="utf-8") as f:
+                            f.write(text)
+                    else:
+                        # Append metadata.csv
+                        rel_path = f"wavs/{filename}"
+                        with open(metadata_path, "a", encoding="utf-8") as f:
+                            f.write(f"{rel_path}|{text}|{round(final_duration, 3)}\n")
+
+                    stats["processed"] += 1
+                    processed_files.add(filename)
+                except Exception as e:
+                    stats["errors"] += 1
+                    print(e)
+
+                # Save stats mỗi 500 item để giảm I/O
+                if stats["total_seen"] % 500 == 0:
+                    with open(stats_path, "w", encoding="utf-8") as f:
+                        json.dump(stats, f, indent=4, ensure_ascii=False)
+            
+            # Clean up cache and delete the original file
+            try:
+                ds.cleanup_cache_files()
+            except Exception as e:
+                print(f"Could not clean cache: {e}")
 
             try:
-                audio = item["audio"]
-                audio_array = np.asarray(
-                    audio["array"],
-                    dtype=np.float32
-                )
-                sr = audio["sampling_rate"]
-                duration = len(audio_array) / sr
-
-                # Duration filter
-                if not (self.min_duration <= duration <= self.max_duration):
-                    stats["duration_filtered"] += 1
-                    continue
-
-                text = item.get(self.text_column)
-                if text is None:
-                    # Fallback cho LibriTTS (HuggingFace arrow files dùng text_normalized hoặc text_original)
-                    text = item.get("text_normalized") or item.get("text_original")
-                text = str(text or "").strip()
-                # Empty text
-                if not text:
-                    stats["empty_text"] += 1
-                    continue
-
-                final_duration = self.save_audio(audio_array, sr, filename)
-
-                if self.output_format == "pairs":
-                    # Lưu file .txt cùng tên với .wav
-                    txt_filename = filename.replace(".wav", ".txt")
-                    txt_path = os.path.join(self.wavs_dir, txt_filename)
-                    with open(txt_path, "w", encoding="utf-8") as f:
-                        f.write(text)
-                else:
-                    # Append metadata.csv
-                    rel_path = f"wavs/{filename}"
-                    with open(metadata_path, "a", encoding="utf-8") as f:
-                        f.write(f"{rel_path}|{text}|{round(final_duration, 3)}\n")
-
-                stats["processed"] += 1
+                os.remove(file_path)
+                print(f"-> Deleted original file: {file_path}")
             except Exception as e:
-                stats["errors"] += 1
-                print(e)
-
-            # Save stats realtime
-            with open(stats_path, "w", encoding="utf-8") as f:
-                json.dump(stats, f, indent=4, ensure_ascii=False)
+                print(f"-> Could not delete {file_path}: {e}")
 
         print("Processing finished")
         print(json.dumps(stats, indent=4, ensure_ascii=False))
 
 
-
-
+# Re-download vì toàn bộ parquet đã bị xóa
 download_libritts()
-
 
 
 processor = DatasetProcessor(
     raw_data_dir=os.path.join(target_dir, "libritts"),
     processed_dir=os.path.join(BASE_DIR, "Processed_DATA"),
-    dataset_name = "libritts"
+    dataset_name="libritts",
+    text_column="text_normalized",
 )
-processor.process() 
+processor.process()

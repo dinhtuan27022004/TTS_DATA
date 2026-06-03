@@ -18,11 +18,17 @@ Giải pháp: Worker xử lý BATCH_SIZE file rồi EXIT.
 
 # ==============================================================================
 # HACK: torchaudio 2.11+ compatibility monkeypatch
+# Torchaudio 2.11+ routes torchaudio.load through torchcodec, which is stricter
+# and crashes on malformed/corrupted audio files. We replace both .info and .load
+# with soundfile-based implementations that are more permissive (matches old
+# sox/soundfile backend behavior).
 # ==============================================================================
 import sys
 import torchaudio
 from types import ModuleType
 import soundfile as sf
+import numpy as np
+import torch
 
 class AudioMetaData:
     def __init__(self, sample_rate, num_frames, num_channels, bits_per_sample=16, encoding="PCM_S"):
@@ -31,10 +37,33 @@ class AudioMetaData:
         self.encoding = encoding
 
 def mock_info(filepath, *args, **kwargs):
-    info = sf.info(filepath)
-    return AudioMetaData(info.samplerate, info.frames, info.channels)
+    try:
+        info = sf.info(filepath)
+        return AudioMetaData(info.samplerate, info.frames, info.channels)
+    except Exception as e:
+        raise RuntimeError(f"Cannot read audio metadata: {e}") from e
+
+def mock_load(filepath, frame_offset=0, num_frames=-1, normalize=True,
+              channels_first=True, format=None, buffer_size=65536, **kwargs):
+    """soundfile-backed torchaudio.load — avoids torchcodec for corrupt files."""
+    sf_kwargs = {}
+    if frame_offset > 0:
+        sf_kwargs["start"] = frame_offset
+    if num_frames > 0:
+        sf_kwargs["stop"] = frame_offset + num_frames
+    data, sr = sf.read(filepath, dtype="float32", always_2d=True, **sf_kwargs)
+    # data shape: (frames, channels) → convert to (channels, frames)
+    tensor = torch.from_numpy(data.T)  # (C, T)
+    if not normalize:
+        # soundfile always returns float32 in [-1, 1]; undo norm for int types
+        info = sf.info(filepath)
+        if "PCM" in info.subtype:
+            bits = int(''.join(filter(str.isdigit, info.subtype)) or 16)
+            tensor = (tensor * (2 ** (bits - 1))).to(torch.int16 if bits <= 16 else torch.int32)
+    return tensor, sr
 
 torchaudio.info = mock_info
+torchaudio.load = mock_load
 _m = ModuleType("torchaudio.backend.common")
 _m.AudioMetaData = AudioMetaData
 sys.modules["torchaudio.backend.common"] = _m
@@ -74,10 +103,15 @@ NUM_PROCESSES = 8  # Tối ưu cho 1 GPU: >4 worker tranh GPU → chậm hơn (1
 # Với 888K files, 4 workers, 11 it/s:
 #   BATCH_SIZE=5000 → ~30 phút/batch, ~44 lần respawn tổng → overhead ~3%
 #   BATCH_SIZE=200  → ~2 phút/batch, ~1111 lần respawn → overhead >50% (CHẬM!)
-BATCH_SIZE = 100
+BATCH_SIZE = 50
 
-TMP_DIR    = "/home/reg/TTS_DATA/TMP"
-STATE_FILE = os.path.join(BASE_DIR, "Processed_DATA", "preprocess_state.json")
+TMP_DIR           = "/home/reg/TTS_DATA/TMP"
+STATE_FILE        = os.path.join(BASE_DIR, "Processed_DATA", "preprocess_state.json")
+CORRUPTED_LOG     = os.path.join(BASE_DIR, "Processed_DATA", "corrupted_files.txt")
+
+# Các keyword trong exception message được coi là "file corrupt" → chỉ log WARNING ngắn
+_CORRUPT_KEYWORDS = ("format not recognised", "invalid data", "no such file",
+                     "cannot read audio", "failed to decode")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -171,8 +205,19 @@ def worker_task(shared_model, file_list, process_idx, result_queue):
             result_queue.put((filepath, True))
 
         except Exception as exc:
-            import traceback
-            logger.error(f"[W{process_idx}] {filepath}: {exc}\n{traceback.format_exc()}")
+            exc_lower = str(exc).lower()
+            if any(kw in exc_lower for kw in _CORRUPT_KEYWORDS):
+                # File bị corrupt / không đọc được → skip, log ngắn
+                logger.warning(f"[W{process_idx}] SKIP corrupt file: {os.path.basename(filepath)} ({exc})")
+                try:
+                    with open(CORRUPTED_LOG, "a", encoding="utf-8") as cf:
+                        cf.write(filepath + "\n")
+                except Exception:
+                    pass
+            else:
+                # Lỗi không mong đợi → log full traceback
+                import traceback
+                logger.error(f"[W{process_idx}] {filepath}: {exc}\n{traceback.format_exc()}")
             result_queue.put((filepath, False))
 
         finally:
