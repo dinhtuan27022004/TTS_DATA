@@ -66,7 +66,7 @@ def main():
     # Cấu hình thu thập — chỉnh theo nhu cầu
     # -------------------------------------------------------------------------
     MAX_URL_TOTAL       = 1000   # Tổng URL tối đa cần thu thập
-    MAX_URL_PER_CHANNEL = 10  # URL tối đa lấy từ mỗi kênh
+    MAX_URL_PER_CHANNEL = 20  # URL tối đa lấy từ mỗi kênh
     TIMEOUT_PER_CHANNEL = 120.0  # Giây timeout mỗi kênh
     REQUEST_TIMEOUT     = 30.0   # Giây timeout mỗi HTTP request
 

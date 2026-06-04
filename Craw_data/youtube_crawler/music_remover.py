@@ -168,11 +168,13 @@ class MusicRemover:
         self,
         input_dir: str = "Youtube_Data/Step_0",
         output_dir: str = "Youtube_Data/Step_1",
-        model_name: str = "htdemucs"
+        model_name: str = "htdemucs",
+        chunk_duration: float = 30.0,
     ):
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.model_name = model_name
+        self.chunk_duration = chunk_duration
         self.stats_path = os.path.join(output_dir, "stats.json")
 
     def process_all(self) -> List[str]:
@@ -182,10 +184,10 @@ class MusicRemover:
         all_wav_files.sort()
 
         if not all_wav_files:
-            logger.warning(f"Không tìm thấy file WAV nào trong {self.input_dir}")
+            logger.warning(f"Khong tim thay file WAV nao trong {self.input_dir}")
             return []
 
-        logger.info(f"Tìm thấy {len(all_wav_files)} file WAV trong {self.input_dir}")
+        logger.info(f"Tim thay {len(all_wav_files)} file WAV trong {self.input_dir}")
 
         files_to_process = []
         for filename in all_wav_files:
@@ -196,11 +198,11 @@ class MusicRemover:
                 files_to_process.append(filename)
 
         skipped = len(all_wav_files) - len(files_to_process)
-        logger.info(f"Đã xử lý trước đó: {skipped} files")
-        logger.info(f"Cần xử lý thêm: {len(files_to_process)} files")
+        logger.info(f"Da xu ly truoc do: {skipped} files")
+        logger.info(f"Can xu ly them: {len(files_to_process)} files")
 
         if not files_to_process:
-            logger.info("Tất cả file đã được xử lý. Không cần xử lý thêm.")
+            logger.info("Tat ca file da duoc xu ly. Khong can xu ly them.")
             self._save_stats()
             return []
 
@@ -234,30 +236,29 @@ class MusicRemover:
         for filename in os.listdir(self.output_dir):
             if not filename.lower().endswith(".wav"):
                 continue
-
             filepath = os.path.join(self.output_dir, filename)
             try:
                 with wave.open(filepath, "r") as wf:
-                    frames = wf.getnframes()
-                    rate = wf.getframerate()
-                    duration = frames / float(rate)
-                    total_duration += duration
+                    total_duration += wf.getnframes() / float(wf.getframerate())
                     total_files += 1
             except Exception as e:
-                logger.warning(f"Không thể đọc duration của {filename}: {e}")
+                logger.warning(f"Khong the doc duration cua {filename}: {e}")
                 total_files += 1
 
         avg_duration = total_duration / total_files if total_files > 0 else 0.0
-
         stats = {
             "total_files": total_files,
             "total_duration_seconds": round(total_duration, 2),
-            "avg_duration_seconds": round(avg_duration, 2)
+            "avg_duration_seconds": round(avg_duration, 2),
         }
 
         try:
             with open(self.stats_path, "w", encoding="utf-8") as f:
                 json.dump(stats, f, ensure_ascii=False, indent=2)
-            logger.info(f"Stats: {total_files} files, {total_duration:.1f}s total, {avg_duration:.1f}s avg")
+            logger.info(
+                f"Stats: {total_files} files, "
+                f"{total_duration:.1f}s total, "
+                f"{avg_duration:.1f}s avg"
+            )
         except Exception as e:
-            logger.error(f"Lỗi lưu stats.json: {e}")
+            logger.error(f"Loi luu stats.json: {e}")
