@@ -61,66 +61,78 @@ class AudioSegmenter:
 
         # Danh sách tất cả segments đã tạo (dùng cho stats)
         self.all_segments: List[SegmentInfo] = []
+        self.processed_json_path = os.path.join(self.output_dir, "processed_segments.json")
+
+    def _load_processed_files(self) -> set:
+        if os.path.exists(self.processed_json_path):
+            try:
+                with open(self.processed_json_path, "r", encoding="utf-8") as f:
+                    return set(json.load(f))
+            except Exception as e:
+                logger.warning(f"Không thể đọc file {self.processed_json_path}: {e}")
+        return set()
+
+    def _save_processed_files(self, processed_set: set):
+        try:
+            with open(self.processed_json_path, "w", encoding="utf-8") as f:
+                json.dump(list(processed_set), f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"Lỗi lưu file {self.processed_json_path}: {e}")
 
     def segment_all(self) -> List[SegmentInfo]:
-        """
-        Cắt tất cả file thành segments, resume từ vị trí dừng.
-        
-        - Liệt kê tất cả file .json trong input_dir (timestamps từ Phase 4)
-        - Skip file gốc đã có segments trong output (resume)
-        - Cắt audio và lưu segments
-        - Lưu stats.json
-        
-        Returns:
-            Danh sách SegmentInfo (path, transcript, duration)
-        """
-        # Liệt kê tất cả file JSON timestamps trong input_dir
-        all_json_files = [
-            f for f in os.listdir(self.input_dir)
-            if f.lower().endswith(".json")
-        ]
-        all_json_files.sort()
+        import time
+        max_empty_retries = 3
+        empty_retries = 0
+        new_segments = []
 
-        if not all_json_files:
-            logger.warning(f"Không tìm thấy file JSON nào trong {self.input_dir}")
-            return []
+        processed_set = self._load_processed_files()
+        if processed_set:
+            logger.info(f"Đã nạp {len(processed_set)} files đã xử lý từ JSON.")
 
-        logger.info(f"Tìm thấy {len(all_json_files)} file JSON timestamps")
+        while True:
+            # Liệt kê tất cả file JSON timestamps trong input_dir
+            all_json_files = [
+                f for f in os.listdir(self.input_dir)
+                if f.lower().endswith(".json")
+                and f != "processed_demucs.json"
+            ]
+            all_json_files.sort()
 
-        # Kiểm tra file nào đã xử lý (resume)
-        files_to_process = []
-        for json_filename in all_json_files:
-            basename = os.path.splitext(json_filename)[0]
-            if self._is_already_segmented(basename):
-                logger.info(f"[SKIP] Đã có segments: {basename}")
-            else:
+            # Kiểm tra file nào đã xử lý (resume)
+            files_to_process = []
+            for json_filename in all_json_files:
+                basename = os.path.splitext(json_filename)[0]
+                if basename in processed_set:
+                    continue
                 files_to_process.append(json_filename)
 
-        skipped = len(all_json_files) - len(files_to_process)
-        logger.info(f"Đã xử lý trước đó: {skipped} files")
-        logger.info(f"Cần xử lý thêm: {len(files_to_process)} files")
+            if not files_to_process:
+                logger.info("Chưa có file mới. Chờ 10 giây và thử lại...")
+                time.sleep(10)
+                continue
 
-        if not files_to_process:
-            logger.info("Tất cả file đã được segment. Không cần xử lý thêm.")
-            # Vẫn lưu stats dựa trên file hiện có trong output
+            empty_retries = 0
+            logger.info(f"Cần xử lý thêm lô mới: {len(files_to_process)} files")
+
+            # Xử lý từng file
+            for json_filename in tqdm(files_to_process, desc="Segmenting"):
+                json_path = os.path.join(self.input_dir, json_filename)
+                basename = os.path.splitext(json_filename)[0]
+                try:
+                    segments = self._process_json_file(json_path)
+                    new_segments.extend(segments)
+                    logger.info(f"[OK] {json_filename} -> {len(segments)} segments")
+                except Exception as e:
+                    logger.error(f"[FAIL] Lỗi xử lý {json_filename}: {e}")
+                
+                # Ghi nhận đã xử lý xong file này
+                processed_set.add(basename)
+
+            # Lưu stats.json và processed_segments.json
+            self._save_processed_files(processed_set)
             self._save_stats()
-            return []
 
-        # Xử lý từng file
-        new_segments = []
-        for json_filename in tqdm(files_to_process, desc="Segmenting"):
-            json_path = os.path.join(self.input_dir, json_filename)
-            try:
-                segments = self._process_json_file(json_path)
-                new_segments.extend(segments)
-                logger.info(f"[OK] {json_filename} -> {len(segments)} segments")
-            except Exception as e:
-                logger.error(f"[FAIL] Lỗi xử lý {json_filename}: {e}")
-
-        # Lưu stats.json
-        self._save_stats()
-
-        logger.info(f"Hoàn thành! Tạo {len(new_segments)} segments mới.")
+        logger.info(f"Hoàn thành! Tạo tổng cộng {len(new_segments)} segments mới trong phiên này.")
         return new_segments
 
     def _is_already_segmented(self, basename: str) -> bool:
@@ -233,9 +245,9 @@ class AudioSegmenter:
             # Lưu WAV
             sf.write(wav_output, segment_audio, sr)
 
-            # Lưu transcript TXT
-            with open(txt_output, "w", encoding="utf-8") as f:
-                f.write(transcript)
+            # Bỏ lưu transcript TXT theo yêu cầu
+            # with open(txt_output, "w", encoding="utf-8") as f:
+            #     f.write(transcript)
 
             # Tạo SegmentInfo
             duration = end_time - start_time

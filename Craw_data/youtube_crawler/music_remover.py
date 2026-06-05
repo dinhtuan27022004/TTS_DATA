@@ -176,58 +176,95 @@ class MusicRemover:
         self.model_name = model_name
         self.chunk_duration = chunk_duration
         self.stats_path = os.path.join(output_dir, "stats.json")
+        self.processed_json_path = os.path.join(output_dir, "processed_demucs.json")
+
+    def _load_processed_files(self) -> set:
+        if os.path.exists(self.processed_json_path):
+            try:
+                with open(self.processed_json_path, "r", encoding="utf-8") as f:
+                    return set(json.load(f))
+            except Exception as e:
+                logger.warning(f"Không thể đọc file {self.processed_json_path}: {e}")
+        return set()
+
+    def _save_processed_files(self, processed_set: set):
+        try:
+            with open(self.processed_json_path, "w", encoding="utf-8") as f:
+                json.dump(list(processed_set), f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"Lỗi lưu file {self.processed_json_path}: {e}")
 
     def process_all(self) -> List[str]:
+        import time
         os.makedirs(self.output_dir, exist_ok=True)
+        
+        processed_set = self._load_processed_files()
+        if processed_set:
+            logger.info(f"Đã nạp {len(processed_set)} files đã xử lý từ file JSON.")
+        
+        total_processed_in_session = []
+        max_empty_retries = 3
+        empty_retries = 0
 
-        all_wav_files = [f for f in os.listdir(self.input_dir) if f.lower().endswith(".wav")]
-        all_wav_files.sort()
+        # Chỉ chạy 1 luồng duy nhất theo yêu cầu để tránh lỗi hết RAM (OOM)
+        max_workers = 1
+        logger.info(f"Khởi chạy {max_workers} tiến trình độc lập (ProcessPool)...")
 
-        if not all_wav_files:
-            logger.warning(f"Khong tim thay file WAV nao trong {self.input_dir}")
-            return []
+        while True:
+            all_wav_files = [f for f in os.listdir(self.input_dir) if f.lower().endswith(".wav")]
+            all_wav_files.sort()
 
-        logger.info(f"Tim thay {len(all_wav_files)} file WAV trong {self.input_dir}")
-
-        files_to_process = []
-        for filename in all_wav_files:
-            output_path = os.path.join(self.output_dir, filename)
-            if os.path.exists(output_path):
-                logger.info(f"[SKIP] Đã tồn tại: {filename}")
-            else:
+            files_to_process = []
+            json_updated = False
+            for filename in all_wav_files:
+                output_path = os.path.join(self.output_dir, filename)
+                # Đã có trong JSON thì an toàn bỏ qua
+                if filename in processed_set:
+                    continue
+                # Nếu file output đã tồn tại (do lần chạy trước bị crash chưa kịp lưu JSON)
+                if os.path.exists(output_path):
+                    processed_set.add(filename)
+                    json_updated = True
+                    continue
                 files_to_process.append(filename)
-
-        skipped = len(all_wav_files) - len(files_to_process)
-        logger.info(f"Da xu ly truoc do: {skipped} files")
-        logger.info(f"Can xu ly them: {len(files_to_process)} files")
-
-        if not files_to_process:
-            logger.info("Tat ca file da duoc xu ly. Khong can xu ly them.")
-            self._save_stats()
-            return []
-
-        # Tự động tính số workers tối ưu
-        max_workers = calculate_optimal_workers()
-        logger.info(f"Khởi chạy {max_workers} tiến trình độc lập (ProcessPool) để tận dụng tối đa ~{MAX_VRAM_GB}GB VRAM...")
-
-        ctx = mp.get_context('spawn')
-        args_list = [(os.path.join(self.input_dir, f), self.output_dir) for f in files_to_process]
-        processed_files = []
-
-        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx, initializer=init_worker, initargs=(self.model_name,)) as executor:
-            futures = {executor.submit(process_file_in_worker, args): args[0] for args in args_list}
             
-            for future in tqdm(concurrent.futures.as_completed(futures), total=len(files_to_process), desc="Removing music"):
-                fname, output_path, error = future.result()
-                if error:
-                    logger.error(f"[FAIL] Không thể xử lý {fname}: {error}")
-                elif output_path:
-                    processed_files.append(output_path)
-                    logger.info(f"[OK] {fname}")
+            if json_updated:
+                self._save_processed_files(processed_set)
 
-        self._save_stats()
-        logger.info(f"Hoàn thành! Đã xử lý {len(processed_files)} files mới.")
-        return processed_files
+            if not files_to_process:
+                empty_retries += 1
+                if empty_retries > max_empty_retries:
+                    logger.info("Không có file mới nào sau nhiều lần thử. Kết thúc Phase 3.")
+                    break
+                logger.info(f"Chưa có file mới. Chờ 60 giây và thử lại... ({empty_retries}/{max_empty_retries})")
+                time.sleep(60)
+                continue
+
+            # Reset retries vì đã tìm thấy file mới
+            empty_retries = 0
+            logger.info(f"Cần xử lý thêm lô mới: {len(files_to_process)} files")
+
+            ctx = mp.get_context('spawn')
+            args_list = [(os.path.join(self.input_dir, f), self.output_dir) for f in files_to_process]
+            
+            with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx, initializer=init_worker, initargs=(self.model_name,)) as executor:
+                futures = {executor.submit(process_file_in_worker, args): args[0] for args in args_list}
+                
+                for future in tqdm(concurrent.futures.as_completed(futures), total=len(files_to_process), desc="Removing music"):
+                    fname, output_path, error = future.result()
+                    if error:
+                        logger.error(f"[FAIL] Không thể xử lý {fname}: {error}")
+                    elif output_path:
+                        total_processed_in_session.append(output_path)
+                        processed_set.add(fname)
+                        logger.info(f"[OK] {fname}")
+            
+            # Lưu lại danh sách JSON sau mỗi lô
+            self._save_processed_files(processed_set)
+            self._save_stats()
+
+        logger.info(f"Hoàn thành! Đã xử lý tổng cộng {len(total_processed_in_session)} files mới trong phiên này.")
+        return total_processed_in_session
 
     def _save_stats(self):
         total_files = 0

@@ -38,7 +38,7 @@ class Transcriber:
         self,
         input_dir: str = "Youtube_Data/Step_1",
         model_name: str = "nvidia/parakeet-ctc-0.6b-vi",
-        use_punctuation: bool = True,
+        use_punctuation: bool = False,
         pause_threshold: float = 0.05
     ):
         """
@@ -78,6 +78,9 @@ class Transcriber:
             from chunkformer import ChunkFormerModel
             logger.info(f"Đang load ChunkFormer model từ: {self.model_name}...")
             self.model = ChunkFormerModel.from_pretrained(self.model_name)
+            if torch.cuda.is_available():
+                self.model = self.model.cuda()
+                logger.info("Sử dụng GPU (CUDA) cho ChunkFormer")
             logger.info(f"ChunkFormer Model {self.model_name} đã load thành công!")
         else:
             import nemo.collections.asr as nemo_asr
@@ -102,84 +105,82 @@ class Transcriber:
 
 
     def transcribe_all(self) -> List[TranscriptionResult]:
-        """
-        Transcribe tất cả file WAV trong input_dir, resume từ vị trí dừng.
-        
-        - Liệt kê tất cả file .wav trong input_dir
-        - Skip file đã có .json tương ứng (resume)
-        - Transcribe và lưu timestamps JSON
-        
-        Returns:
-            Danh sách TranscriptionResult với timestamps
-        """
-        # Liệt kê tất cả file WAV
-        all_wav_files = [
-            f for f in os.listdir(self.input_dir)
-            if f.lower().endswith(".wav")
-        ]
-        all_wav_files.sort()
+        import time
+        results = []
+        max_empty_retries = 3
+        empty_retries = 0
+        processed_demucs_path = os.path.join(self.input_dir, "processed_demucs.json")
 
-        if not all_wav_files:
-            logger.warning(f"Không tìm thấy file WAV nào trong {self.input_dir}")
-            return []
-
-        logger.info(f"Tìm thấy {len(all_wav_files)} file WAV trong {self.input_dir}")
-
-        # Kiểm tra file nào đã có .json (resume)
-        files_to_process = []
-        for filename in all_wav_files:
-            json_path = os.path.join(
-                self.input_dir,
-                os.path.splitext(filename)[0] + ".json"
-            )
-            if os.path.exists(json_path):
-                logger.info(f"[SKIP] Đã có transcript: {filename}")
-            else:
-                files_to_process.append(filename)
-
-        skipped = len(all_wav_files) - len(files_to_process)
-        logger.info(f"Đã transcribe trước đó: {skipped} files")
-        logger.info(f"Cần transcribe thêm: {len(files_to_process)} files")
-
-        if not files_to_process:
-            logger.info("Tất cả file đã được transcribe. Không cần xử lý thêm.")
-            return []
-
-        # Load model (chỉ load khi thực sự cần)
+        # Load model trước vòng lặp nếu chưa load
         if self.model is None:
             self._load_model()
 
-        # Transcribe từng file
-        results = []
-        for filename in tqdm(files_to_process, desc="Transcribing"):
-            wav_path = os.path.join(self.input_dir, filename)
-            try:
-                result = self._transcribe_single(wav_path)
-                if result is not None:
-                    # Lưu timestamps JSON
-                    self._save_json(result)
-                    results.append(result)
-                    logger.info(f"[OK] {filename} - '{result.full_text[:50]}...'")
-                else:
-                    logger.warning(f"[SKIP] Không có speech: {filename}")
+        while True:
+            # Quét trực tiếp thư mục Step_1 để không bỏ sót bất kỳ file nào (kể cả file mồ côi)
+            demucs_files = [f for f in os.listdir(self.input_dir) if f.lower().endswith(".wav")]
+            demucs_files.sort()
+
+            # Kiểm tra file nào đã có .json (resume)
+            files_to_process = []
+            for filename in demucs_files:
+                json_path = os.path.join(
+                    self.input_dir,
+                    os.path.splitext(filename)[0] + ".json"
+                )
+                if os.path.exists(json_path):
+                    continue
                 
-                # Giải phóng VRAM sau mỗi file để tránh dồn bộ nhớ
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                # Đảm bảo file wav thực sự tồn tại
+                wav_path = os.path.join(self.input_dir, filename)
+                if os.path.exists(wav_path):
+                    files_to_process.append(filename)
+
+            if not files_to_process:
+                empty_retries += 1
+                if empty_retries > max_empty_retries:
+                    logger.info("Không có file mới nào sau nhiều lần thử. Kết thúc Phase 4.")
+                    break
+                logger.info(f"Chưa có file mới. Chờ 60 giây và thử lại... ({empty_retries}/{max_empty_retries})")
+                time.sleep(60)
+                continue
+
+            # Reset retries vì tìm thấy file mới
+            empty_retries = 0
+            logger.info(f"Cần transcribe thêm lô mới: {len(files_to_process)} files")
+
+            # Transcribe từng file
+            for filename in tqdm(files_to_process, desc="Transcribing"):
+                wav_path = os.path.join(self.input_dir, filename)
+                try:
+                    result = self._transcribe_single(wav_path)
+                    if result is not None:
+                        # Lưu timestamps JSON
+                        self._save_json(result)
+                        results.append(result)
+                        logger.info(f"[OK] {filename} - '{result.full_text[:50]}...'")
+                    else:
+                        # Lưu một file json trống để đánh dấu là đã xử lý nhưng không có speech
+                        empty_result = TranscriptionResult(wav_path=wav_path, full_text="", word_timestamps=[], duration=0.0)
+                        self._save_json(empty_result)
+                        logger.warning(f"[SKIP] Không có speech: {filename}")
                     
-            except RuntimeError as e:
-                if "CUDA out of memory" in str(e):
-                    logger.error(f"[CRITICAL] Hết VRAM (OOM) khi xử lý {filename}. Chương trình sẽ dừng lại!")
+                    # Giải phóng VRAM sau mỗi file để tránh dồn bộ nhớ
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
-                    import sys
-                    sys.exit(1)
-                else:
+                        
+                except RuntimeError as e:
+                    if "CUDA out of memory" in str(e):
+                        logger.error(f"[CRITICAL] Hết VRAM (OOM) khi xử lý {filename}. Chương trình sẽ dừng lại!")
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        import sys
+                        sys.exit(1)
+                    else:
+                        logger.error(f"[FAIL] Lỗi transcribe {filename}: {e}", exc_info=True)
+                except Exception as e:
                     logger.error(f"[FAIL] Lỗi transcribe {filename}: {e}", exc_info=True)
-            except Exception as e:
-                logger.error(f"[FAIL] Lỗi transcribe {filename}: {e}", exc_info=True)
 
-        logger.info(f"Hoàn thành! Đã transcribe {len(results)} files mới.")
+        logger.info(f"Hoàn thành! Đã transcribe tổng cộng {len(results)} files mới trong phiên này.")
         return results
 
     # def _transcribe_single(self, wav_path: str) -> Optional[TranscriptionResult]:
@@ -253,7 +254,7 @@ class Transcriber:
                 chunk_size=64,
                 left_context_size=128,
                 right_context_size=128,
-                total_batch_duration=360,
+                total_batch_duration=60,  # Giảm từ 360 xuống 60 để tiết kiệm VRAM
                 return_timestamps=True
             )
             
