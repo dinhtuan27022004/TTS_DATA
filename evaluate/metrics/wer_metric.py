@@ -20,9 +20,8 @@ logger = logging.getLogger(__name__)
 # Cache model
 _asr_model = None
 
-_MODEL_NAME = "
-"
-_TARGET_SR = 24000
+_MODEL_NAME = "nvidia/parakeet-ctc-0.6b-vi"
+_TARGET_SR = 16000
 
 
 def _load_asr_model():

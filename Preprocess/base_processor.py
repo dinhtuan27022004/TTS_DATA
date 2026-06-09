@@ -60,7 +60,6 @@ def download_vietnam_celeb():
     )
     print("Download completed! All files are in", dataset_dir)
 
-
 def download_libritts():
     dataset_dir = os.path.join(target_dir, "libritts")
     os.makedirs(dataset_dir, exist_ok=True)
@@ -273,13 +272,13 @@ class DatasetProcessor:
 
 
 # Re-download vì toàn bộ parquet đã bị xóa
-download_libritts()
+download_vivoice()
 
 
 processor = DatasetProcessor(
-    raw_data_dir=os.path.join(target_dir, "libritts"),
-    processed_dir=os.path.join(BASE_DIR, "Processed_DATA"),
-    dataset_name="libritts",
-    text_column="text_normalized",
+    raw_data_dir=os.path.join(target_dir, "viVoice"),
+    processed_dir=os.path.join(target_dir, "backup"),
+    dataset_name="viVoice",
+    text_column="text",
 )
 processor.process()

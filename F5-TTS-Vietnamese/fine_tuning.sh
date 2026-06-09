@@ -38,12 +38,24 @@ mkdir -p data/your_dataset
 # Định nghĩa các tham số huấn luyện
 EXP_NAME="F5TTS_Base"
 DATASET_NAME="your_training_dataset"
-BATCH_SIZE=20000
-NUM_WOKERS=16
-WARMUP_UPDATES=5000
-SAVE_UPDATES=10000
-LAST_UPDATES=10000
-EPOCHS=3 # <-- Bạn có thể chỉnh sửa số vòng lặp tại đây
+BATCH_SIZE=4000
+
+
+WARMUP_UPDATES=3000
+SAVE_UPDATES=5000
+LAST_UPDATES=5000
+EPOCHS=5 # <-- Bạn có thể chỉnh sửa số vòng lặp tại đây
+LEARNING_RATE=1e-5 # <-- Bạn có thể chỉnh sửa learning rate tại đây
+
+# EXP_NAME="F5TTS_Base"
+# DATASET_NAME="your_training_dataset"
+# BATCH_SIZE=20000
+
+
+# WARMUP_UPDATES=5000
+# SAVE_UPDATES=10000
+# LAST_UPDATES=10000
+# EPOCHS=5 # <-- Bạn có thể chỉnh sửa số vòng lặp tại đây
 
 # EXP_NAME="F5TTS_Base"
 # DATASET_NAME="your_training_dataset"
@@ -105,6 +117,7 @@ if [ $stage -le 5 ] && [ $stop_stage -ge 5 ]; then
     python src/f5_tts/train/finetune_cli.py \
         --exp_name "$EXP_NAME" \
         --dataset_name "$DATASET_NAME" \
+        --learning_rate "$LEARNING_RATE" \
         --batch_size_per_gpu "$BATCH_SIZE" \
         --num_warmup_updates "$WARMUP_UPDATES" \
         --save_per_updates "$SAVE_UPDATES" \
@@ -117,6 +130,7 @@ if [ $stage -le 5 ] && [ $stop_stage -ge 5 ]; then
     # accelerate launch src/f5_tts/train/finetune_cli.py \
     #     --exp_name "$EXP_NAME" \
     #     --dataset_name "$DATASET_NAME" \
+    #     --learning_rate "$LEARNING_RATE" \
     #     --batch_size_per_gpu "$BATCH_SIZE" \
     #     --num_warmup_updates "$WARMUP_UPDATES" \
     #     --save_per_updates "$SAVE_UPDATES" \

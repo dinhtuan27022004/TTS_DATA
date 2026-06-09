@@ -1,0 +1,22 @@
+# F5-TTS Demo — Additional Python Dependencies
+# (The main repo's requirements.txt already covers torch, soundfile, etc.)
+
+# Web framework
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+
+# Frontend
+streamlit>=1.35.0
+
+# HTTP client (for Streamlit → API calls)
+requests>=2.31.0
+
+# Pydantic v2 (FastAPI đã bundle, nhưng pin version rõ ràng)
+pydantic>=2.7.0
+
+# Audio I/O (nếu chưa có trong môi trường)
+soundfile>=0.12.1
+numpy>=1.24.0
+
+# Type stubs (optional, chỉ dùng khi dev)
+# types-requests

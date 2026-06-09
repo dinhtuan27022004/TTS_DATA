@@ -21,8 +21,8 @@ F5_TTS_SRC = os.path.join(F5_TTS_DIR, "src")
 F5_DEFAULT_REF_AUDIO = os.path.join(F5_TTS_DIR, "ref.wav")
 
 # Local model files
-MODEL_DIR = os.path.join(BASE_DIR, "models", "f5-tts-50000")
-LOCAL_CKPT_FILE = os.path.join(MODEL_DIR, "model_50000.pt")
+MODEL_DIR = os.path.join(BASE_DIR, "models", "f5-tts-v0")
+LOCAL_CKPT_FILE = os.path.join(MODEL_DIR, "model.pt")
 LOCAL_VOCAB_FILE = os.path.join(MODEL_DIR, "vocab.txt")
 
 # Thêm F5-TTS source vào path
@@ -72,7 +72,7 @@ class F5TTSVietnamese(TTSModel):
         device: Optional[str] = None,
     ):
         model_dir = model_dir or MODEL_DIR
-        self.ckpt_file = ckpt_file or os.path.join(model_dir, "model_50000.pt")
+        self.ckpt_file = ckpt_file or os.path.join(model_dir, "model.pt")
         self.vocab_file = vocab_file or os.path.join(model_dir, "vocab.txt")
         self.ref_audio_path = ref_audio or F5_DEFAULT_REF_AUDIO
         self.ref_text = ref_text
@@ -84,7 +84,7 @@ class F5TTSVietnamese(TTSModel):
         if not os.path.exists(self.ckpt_file):
             raise FileNotFoundError(
                 f"Checkpoint not found: {self.ckpt_file}\n"
-                f"Hãy đặt file model_50000.pt vào: {model_dir}"
+                f"Hãy đặt file model.pt vào: {model_dir}"
             )
         if not os.path.exists(self.vocab_file):
             raise FileNotFoundError(
