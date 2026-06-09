@@ -190,9 +190,19 @@ def get_audio_duration(audio_path, timeout=5):
 def read_audio_text_pairs(csv_file_path):
     audio_text_pairs = []
 
+    # Increase CSV field size limit to avoid _csv.Error: field larger than field limit
+    import sys
+    max_limit = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(max_limit)
+            break
+        except OverflowError:
+            max_limit = int(max_limit / 10)
+
     parent = Path(csv_file_path).parent
     with open(csv_file_path, mode="r", newline="", encoding="utf-8-sig") as csvfile:
-        reader = csv.reader(csvfile, delimiter="|")
+        reader = csv.reader(csvfile, delimiter="|", quoting=csv.QUOTE_NONE)
         next(reader)  # Skip the header row
         for row in reader:
             if len(row) >= 2:
@@ -202,6 +212,7 @@ def read_audio_text_pairs(csv_file_path):
                 audio_text_pairs.append((audio_file_path.as_posix(), text))
 
     return audio_text_pairs
+
 
 
 def save_prepped_dataset(out_dir, result, duration_list, text_vocab_set, is_finetune):
