@@ -2,7 +2,7 @@
 Phase 2 – Metric Computation.
 
 Chạy sau khi synthesis xong. Tính các metric cho từng cặp (ref_wav, syn_wav):
-  - PESQ, STOI, UTMOS, F0 Correlation  ← so sánh audio ref vs syn
+  - UTMOS, F0 Correlation, Speaker Similarity  ← so sánh audio ref vs syn
   - WER, CER                            ← ASR via Whisper Large v3 trên syn
 
 Resume: bỏ qua sample đã tính (dựa vào JSON đã lưu trong evaluate/results/).
@@ -34,9 +34,9 @@ for _noisy_logger in (
     logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
 
 # Metric được tính ở Phase 2
-AUDIO_METRICS = ["pesq", "stoi", "utmos", "f0_corr", "speaker_sim"]  # cần ref + syn audio
+AUDIO_METRICS = ["utmos", "f0_corr", "speaker_sim"]  # cần ref + syn audio
 # Ưu tiên metric thường nhẹ trước để có chart sớm; UTMOS/SpeakerSim để sau vì load model neural.
-AUDIO_METRIC_ORDER = ["stoi", "pesq", "f0_corr", "utmos", "speaker_sim"]
+AUDIO_METRIC_ORDER = ["f0_corr", "utmos", "speaker_sim"]
 ASR_METRICS   = ["wer", "cer"]                          # cần Whisper
 ALL_METRICS   = AUDIO_METRICS + ASR_METRICS
 
@@ -89,9 +89,7 @@ def _load_audio_pair(
 def _compute_audio_metrics(
     ref: np.ndarray, syn: np.ndarray, sr: int
 ) -> Dict[str, Optional[float]]:
-    """Tính PESQ, STOI, UTMOS, F0 Corr, Speaker Similarity. Lỗi từng metric không ảnh hưởng metric khác."""
-    from evaluate.metrics.pesq_metric import compute_pesq
-    from evaluate.metrics.stoi_metric import compute_stoi
+    """Tính UTMOS, F0 Corr, Speaker Similarity. Lỗi từng metric không ảnh hưởng metric khác."""
     from evaluate.metrics.utmos_metric import predict_mos
     from evaluate.metrics.f0_metric import compute_f0_correlation
     from evaluate.metrics.speaker_sim_metric import compute_speaker_similarity
@@ -99,8 +97,6 @@ def _compute_audio_metrics(
     results: Dict[str, Optional[float]] = {}
 
     for name, fn in [
-        ("pesq",        lambda: compute_pesq(ref, syn, sr)),
-        ("stoi",        lambda: compute_stoi(ref, syn, sr)),
         ("utmos",       lambda: predict_mos(syn, sr)),
         ("f0_corr",     lambda: compute_f0_correlation(ref, syn, sr)),
         ("speaker_sim", lambda: compute_speaker_similarity(ref, syn, sr)),
@@ -164,12 +160,6 @@ def _compute_audio_metrics_for_entry(entry: dict) -> Tuple[str, Optional[Dict[st
 
 def _compute_single_audio_metric(metric: str, ref: np.ndarray, syn: np.ndarray, sr: int) -> Optional[float]:
     """Tính một audio metric; import lazy để metric nhẹ không phải load model nặng."""
-    if metric == "pesq":
-        from evaluate.metrics.pesq_metric import compute_pesq
-        return compute_pesq(ref, syn, sr)
-    if metric == "stoi":
-        from evaluate.metrics.stoi_metric import compute_stoi
-        return compute_stoi(ref, syn, sr)
     if metric == "utmos":
         from evaluate.metrics.utmos_metric import predict_mos
         return predict_mos(syn, sr)

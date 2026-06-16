@@ -6,7 +6,7 @@ import time
 import logging
 from tqdm import tqdm
 import jiwer
-from faster_whisper import WhisperModel
+from components.asr import get_whisper_worker
 
 # --- CẤU HÌNH ---
 INPUT_DIR = "Craw_data/Youtube_Data/Step_2"
@@ -93,10 +93,18 @@ def main():
             json.dump(stats, f, indent=4, ensure_ascii=False)
         return
 
-    # 3. Khởi tạo Whisper Model
-    logger.info("Đang khởi tạo model Whisper (large-v3, int8)...")
+    # 3. Khởi tạo Whisper worker dùng chung
+    logger.info("Đang khởi tạo Whisper infer worker (large-v3, int8)...")
     try:
-        model = WhisperModel("large-v3", device="cuda", compute_type="int8")
+        worker = get_whisper_worker(
+            model_name="large-v3",
+            language="vi",
+            device="cuda",
+            compute_type="int8",
+            beam_size=5,
+            word_timestamps=False,
+        )
+        worker.load()
     except Exception as e:
         logger.error(f"Lỗi khi tải model Whisper: {e}")
         return
@@ -118,8 +126,7 @@ def main():
             
         # Chạy Whisper (Hypothesis)
         try:
-            segments, _ = model.transcribe(wav_path, beam_size=5, language="vi")
-            hyp_raw = " ".join([seg.text for seg in segments])
+            hyp_raw = worker.transcribe_text(wav_path)
         except Exception as e:
             logger.error(f"Lỗi khi transcribe file {filename}: {e}")
             continue

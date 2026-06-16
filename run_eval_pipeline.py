@@ -82,7 +82,7 @@ def _print_summary(checkpoints, results_dir, dataset_name):
     """In bảng tổng kết metric mean sau khi hoàn thành."""
     import json
 
-    METRICS  = ["pesq", "stoi", "utmos", "f0_corr", "speaker_sim", "wer", "cer"]
+    METRICS  = ["utmos", "f0_corr", "speaker_sim", "wer", "cer"]
     col_w    = 13
     sep      = "─" * (18 + col_w * len(METRICS))
 

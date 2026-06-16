@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 # Cấu hình đường dẫn và mô hình mặc định
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-INPUT_DIR = os.path.join(BASE_DIR, "Processed_DATA", "PhoAudioBook")
+INPUT_DIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(BASE_DIR, "Processed_DATA", "PhoAudioBook")
 MODEL_NAME = "htdemucs"
 NUM_THREADS = 2   # Số lượng luồng xử lý song song
 
@@ -223,8 +223,9 @@ def main():
             nonlocal success_count, error_count, processed_count, completed_prefix_idx
             for filepath in file_list:
                 with lock:
-                    save_sample = (processed_count % 5000 == 0)
-
+                    import random
+                    save_sample = (random.randint(1, 5000) == 1)
+                
                 try:
                     denoiser.process_file(filepath, save_sample=save_sample)
                     with lock:

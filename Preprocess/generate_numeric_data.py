@@ -22,7 +22,7 @@ from typing import List, Tuple, Dict, Any, Optional
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 
-from components.tts.F5_V0 import F5TTSVietnamese
+from components.tts.F5_TTS import F5TTSVietnamese
 
 # Constants & Default Paths
 REF_AUDIO_DIR = os.path.join(BASE_DIR, "Processed_DATA", "PhoAudioBook")
@@ -532,8 +532,11 @@ class SyntheticDataGenerator:
             return
             
         print(f"Initializing F5-TTS model...")
-        # Initialize F5-TTS
-        model = F5TTSVietnamese(vocoder_name="vocos", speed=1.0)
+        model = F5TTSVietnamese(
+            ckpt_file="/home/reg/TTS_DATA/models/f5-tts-v0/model.pt",
+            vocoder_name="vocos",
+            speed=1.0,
+        )
         
         print(f"Generating {needed} synthetic numeric speech files...")
         

@@ -20,8 +20,6 @@ logger = logging.getLogger(__name__)
 
 # Metric display config: (key_in_json, label, lower_is_better)
 METRIC_CONFIG = [
-    ("pesq",        "PESQ",       False),
-    ("stoi",        "STOI",       False),
     ("utmos",       "UTMOS",      False),
     ("f0_corr",     "F0 Corr",    False),
     ("speaker_sim", "Spk Sim",    False),

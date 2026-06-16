@@ -13,6 +13,8 @@ import librosa
 import numpy as np
 from pesq import pesq
 
+from evaluate.metrics.audio_utils import prepare_intrusive_pair
+
 logger = logging.getLogger(__name__)
 
 # Sample rate được hỗ trợ bởi PESQ
@@ -38,16 +40,19 @@ def compute_pesq(
     Returns:
         Điểm PESQ dạng float, hoặc None nếu audio quá ngắn.
     """
+    ref_audio, syn_audio = prepare_intrusive_pair(ref_audio, syn_audio)
     target_sr = sr
 
-    # Resample nếu sample rate không được hỗ trợ
     if sr not in _SUPPORTED_RATES:
         target_sr = _DEFAULT_RATE
         ref_audio = librosa.resample(ref_audio.astype(np.float32), orig_sr=sr, target_sr=target_sr)
         syn_audio = librosa.resample(syn_audio.astype(np.float32), orig_sr=sr, target_sr=target_sr)
         logger.debug("Resampled audio từ %d Hz về %d Hz cho PESQ", sr, target_sr)
 
-    # Kiểm tra độ dài tối thiểu
+    min_len = min(len(ref_audio), len(syn_audio))
+    ref_audio = ref_audio[:min_len].astype(np.float32)
+    syn_audio = syn_audio[:min_len].astype(np.float32)
+
     if len(ref_audio) < _MIN_SAMPLES or len(syn_audio) < _MIN_SAMPLES:
         logger.warning(
             "Audio quá ngắn để tính PESQ (ref: %d, syn: %d samples, min: %d)",

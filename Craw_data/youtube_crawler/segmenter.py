@@ -122,6 +122,18 @@ class AudioSegmenter:
                     segments = self._process_json_file(json_path)
                     new_segments.extend(segments)
                     logger.info(f"[OK] {json_filename} -> {len(segments)} segments")
+                    
+                    # Xóa file gốc (.json và .wav) ở Step_1 sau khi xử lý xong
+                    wav_path = os.path.join(self.input_dir, f"{basename}.wav")
+                    try:
+                        if os.path.exists(json_path):
+                            os.remove(json_path)
+                        if os.path.exists(wav_path):
+                            os.remove(wav_path)
+                        logger.info(f"[DELETED] Đã xóa {json_filename} và {basename}.wav từ {self.input_dir}")
+                    except Exception as e:
+                        logger.error(f"[FAIL] Lỗi khi xóa file gốc của {basename}: {e}")
+
                 except Exception as e:
                     logger.error(f"[FAIL] Lỗi xử lý {json_filename}: {e}")
                 
@@ -245,7 +257,7 @@ class AudioSegmenter:
             # Lưu WAV
             sf.write(wav_output, segment_audio, sr)
 
-            # Bỏ lưu transcript TXT theo yêu cầu
+            # [TẮT TẠM THỜI] Bỏ việc tạo TXT ở Phase 5 để nhường cho Phase 6 dùng Whisper sinh ra chữ chuẩn hơn!
             # with open(txt_output, "w", encoding="utf-8") as f:
             #     f.write(transcript)
 

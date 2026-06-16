@@ -214,11 +214,28 @@ def load_checkpoint(model, ckpt_path, device: str, dtype=None, use_ema=True):
             if key in checkpoint["model_state_dict"]:
                 del checkpoint["model_state_dict"][key]
 
-        model.load_state_dict(checkpoint["model_state_dict"])
+        # strict=False: cho phép load model dù vocab size trong checkpoint
+        # khác với vocab.txt hiện tại (ví dụ: checkpoint cũ với 2567 tokens,
+        # vocab.txt mới có 2571 tokens).
+        incompatible = model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+        if incompatible.missing_keys or incompatible.unexpected_keys:
+            import logging
+            _log = logging.getLogger(__name__)
+            if incompatible.missing_keys:
+                _log.warning("load_checkpoint: missing keys: %s", incompatible.missing_keys)
+            if incompatible.unexpected_keys:
+                _log.warning("load_checkpoint: unexpected keys: %s", incompatible.unexpected_keys)
     else:
         if ckpt_type == "safetensors":
             checkpoint = {"model_state_dict": checkpoint}
-        model.load_state_dict(checkpoint["model_state_dict"])
+        incompatible = model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+        if incompatible.missing_keys or incompatible.unexpected_keys:
+            import logging
+            _log = logging.getLogger(__name__)
+            if incompatible.missing_keys:
+                _log.warning("load_checkpoint: missing keys: %s", incompatible.missing_keys)
+            if incompatible.unexpected_keys:
+                _log.warning("load_checkpoint: unexpected keys: %s", incompatible.unexpected_keys)
 
     del checkpoint
     torch.cuda.empty_cache()
@@ -243,9 +260,9 @@ def load_model(
         vocab_file = str(files("f5_tts").joinpath("infer/examples/vocab.txt"))
     tokenizer = "custom"
 
-    print("\nvocab : ", vocab_file)
-    print("token : ", tokenizer)
-    print("model : ", ckpt_path, "\n")
+    # print("\nvocab : ", vocab_file)
+    # print("token : ", tokenizer)
+    # print("model : ", ckpt_path, "\n")
 
     vocab_char_map, vocab_size = get_tokenizer(vocab_file, tokenizer)
     model = CFM(
@@ -355,7 +372,7 @@ def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_in
         else:
             ref_text += ". "
 
-    print("\nref_text  ", ref_text)
+    # print("\nref_text  ", ref_text)
 
     return ref_audio, ref_text
 
@@ -385,9 +402,9 @@ def infer_process(
     audio, sr = torchaudio.load(ref_audio)
     max_chars = int(len(ref_text.encode("utf-8")) / (audio.shape[-1] / sr) * (22 - audio.shape[-1] / sr))
     gen_text_batches = chunk_text(gen_text, max_chars=max_chars)
-    for i, gen_text in enumerate(gen_text_batches):
-        print(f"gen_text {i}", gen_text)
-    print("\n")
+    # for i, gen_text in enumerate(gen_text_batches):
+    #     print(f"gen_text {i}", gen_text)
+    # print("\n")
 
     show_info(f"Generating audio in {len(gen_text_batches)} batches...")
     return next(

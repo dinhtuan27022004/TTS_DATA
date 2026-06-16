@@ -5,7 +5,6 @@ Chỉ giữ lại vocals để chuẩn bị cho transcription.
 Sử dụng Multi-processing để chạy song song nhiều file, vắt kiệt VRAM.
 Tối ưu: Tự động scale workers để dùng tối đa 14GB VRAM.
 """
-
 import os
 import json
 import wave
@@ -16,6 +15,8 @@ from typing import List
 
 import torch
 import torchaudio
+import numpy as np
+import soundfile as sf
 from tqdm import tqdm
 
 logging.basicConfig(
@@ -61,7 +62,6 @@ def process_file_in_worker(args):
     input_path, output_dir = args
     global worker_model, worker_device
     from demucs.apply import apply_model
-    import wave
     import gc
     import os
 
@@ -69,54 +69,39 @@ def process_file_in_worker(args):
     output_path = os.path.join(output_dir, filename)
 
     try:
-        # Lấy thông tin duration
-        with wave.open(input_path, 'rb') as wf:
-            sr_original = wf.getframerate()
-            total_frames = wf.getnframes()
-            
         model_sr = worker_model.samplerate
 
-        chunk_duration_s = 10 * 60
-        chunk_frames = chunk_duration_s * sr_original
+        logger.info(f"[{filename}] Đang load toàn bộ audio vào RAM...")
+        wav, sr = torchaudio.load(input_path)
+
+        if sr != model_sr:
+            wav = torchaudio.functional.resample(wav, sr, model_sr)
+
+        if wav.shape[0] == 1:
+            wav = wav.repeat(2, 1)
+        elif wav.shape[0] > 2:
+            wav = wav[:2, :]
+
+        wav = wav.unsqueeze(0)
+
+        logger.info(f"[{filename}] Bắt đầu tách nhạc (Demucs tự động chia chunk)...")
+        with torch.no_grad():
+            sources = apply_model(
+                worker_model, 
+                wav, 
+                device=worker_device,
+                split=True,
+                overlap=0.1,
+                shifts=0,
+                progress=True,
+            )
+
+        vocals_idx = worker_model.sources.index("vocals")
+        vocals = sources[0, vocals_idx].cpu()
         
-        vocals_out = []
-        
-        for offset in range(0, total_frames, chunk_frames):
-            num_frames = min(chunk_frames, total_frames - offset)
-            wav, sr = torchaudio.load(input_path, frame_offset=offset, num_frames=num_frames)
+        torchaudio.save(output_path, vocals, model_sr)
 
-            if sr != model_sr:
-                wav = torchaudio.functional.resample(wav, sr, model_sr)
-
-            if wav.shape[0] == 1:
-                wav = wav.repeat(2, 1)
-            elif wav.shape[0] > 2:
-                wav = wav[:2, :]
-
-            wav = wav.unsqueeze(0)
-
-            with torch.no_grad():
-                sources = apply_model(
-                    worker_model, 
-                    wav, 
-                    device=worker_device,
-                    split=True,
-                    overlap=0.1,
-                    shifts=0,  # Không dùng shifts để giảm memory & tăng tốc
-                )
-
-            vocals_idx = worker_model.sources.index("vocals")
-            vocals = sources[0, vocals_idx].cpu()
-            vocals_out.append(vocals)
-
-            del wav, sources
-            if worker_device.type == "cuda":
-                torch.cuda.empty_cache()
-
-        final_vocals = torch.cat(vocals_out, dim=1)
-        torchaudio.save(output_path, final_vocals, model_sr)
-
-        del final_vocals, vocals_out
+        del wav, sources, vocals
         gc.collect()
         if worker_device.type == "cuda":
             torch.cuda.empty_cache()
@@ -242,15 +227,39 @@ class MusicRemover:
 
             # Reset retries vì đã tìm thấy file mới
             empty_retries = 0
-            logger.info(f"Cần xử lý thêm lô mới: {len(files_to_process)} files")
+
+            # 1. KIỂM TRA FILE ĐẦU TIÊN: Nếu là file gốc lớn hơn 1 tiếng thì chia nhỏ trước khi xử lý
+            first_file = files_to_process[0]
+            if "_chunk_" not in first_file:
+                filepath = os.path.join(self.input_dir, first_file)
+                try:
+                    info = sf.info(filepath)
+                    duration = info.duration
+                    if duration > 3600:
+                        logger.info(f"Phát hiện file gốc lớn hơn 1 tiếng: {first_file} ({duration:.1f}s). Bắt đầu chia nhỏ tại khoảng lặng...")
+                        split_samples, sr = self._find_split_points(filepath)
+                        self._split_audio(filepath, split_samples, sr)
+                        
+                        # Xóa file gốc khỏi Step_0 để hệ thống chuyển sang xử lý các file chunk
+                        os.remove(filepath)
+                        processed_set.add(first_file) # Đánh dấu đã xử lý file gốc
+                        self._save_processed_files(processed_set)
+                        logger.info(f"Đã chia nhỏ và xóa file gốc {first_file} khỏi {self.input_dir}. Khởi động lại vòng lặp để xử lý các file chunk...")
+                        continue # Restart loop to pick up the new chunk files
+                except Exception as e:
+                    logger.error(f"Lỗi khi kiểm tra/chia nhỏ file {first_file}: {e}")
+
+            # 2. Xử lý đúng 1 file/chunk đầu tiên trong hàng đợi để kiểm soát bộ nhớ
+            file_to_run = files_to_process[0]
+            logger.info(f"Bắt đầu xử lý file: {file_to_run}")
 
             ctx = mp.get_context('spawn')
-            args_list = [(os.path.join(self.input_dir, f), self.output_dir) for f in files_to_process]
+            args_list = [(os.path.join(self.input_dir, file_to_run), self.output_dir)]
             
             with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx, initializer=init_worker, initargs=(self.model_name,)) as executor:
                 futures = {executor.submit(process_file_in_worker, args): args[0] for args in args_list}
                 
-                for future in tqdm(concurrent.futures.as_completed(futures), total=len(files_to_process), desc="Removing music"):
+                for future in tqdm(concurrent.futures.as_completed(futures), total=len(args_list), desc="Removing music"):
                     fname, output_path, error = future.result()
                     if error:
                         logger.error(f"[FAIL] Không thể xử lý {fname}: {error}")
@@ -258,8 +267,17 @@ class MusicRemover:
                         total_processed_in_session.append(output_path)
                         processed_set.add(fname)
                         logger.info(f"[OK] {fname}")
+                        
+                        # Xóa file gốc/chunk sau khi xử lý thành công
+                        input_file_path = os.path.join(self.input_dir, fname)
+                        if os.path.exists(input_file_path):
+                            try:
+                                os.remove(input_file_path)
+                                logger.info(f"[DELETED] {fname} từ {self.input_dir}")
+                            except Exception as e:
+                                logger.error(f"[FAIL] Lỗi khi xóa {fname}: {e}")
             
-            # Lưu lại danh sách JSON sau mỗi lô
+            # Lưu lại danh sách JSON sau mỗi file
             self._save_processed_files(processed_set)
             self._save_stats()
 
@@ -299,3 +317,110 @@ class MusicRemover:
             )
         except Exception as e:
             logger.error(f"Loi luu stats.json: {e}")
+
+    def _find_split_points(self, audio_path, min_silence_len_sec=2.0, silence_thresh_db=-45, max_chunk_len_sec=900):
+        """
+        Tìm tất cả các khoảng lặng >= min_silence_len_sec và cắt tại trung điểm của chúng.
+        Nếu khoảng cách giữa 2 điểm cắt vượt quá max_chunk_len_sec, tiến hành cắt cưỡng bức tại điểm yên tĩnh nhất.
+        """
+        info = sf.info(audio_path)
+        sr = info.samplerate
+        total_samples = info.frames
+        
+        block_size = int(sr * 0.1) # 100ms blocks
+        block_duration = block_size / sr
+        min_silence_blocks = int(min_silence_len_sec / block_duration)
+        max_chunk_blocks = int(max_chunk_len_sec / block_duration)
+        
+        rms_list = []
+        with sf.SoundFile(audio_path) as f:
+            for block in f.blocks(blocksize=block_size, overlap=0, always_2d=True):
+                mono_block = np.mean(block, axis=1)
+                rms = np.sqrt(np.mean(mono_block**2))
+                rms_list.append(rms)
+                
+        rms_arr = np.array(rms_list)
+        rms_arr = np.clip(rms_arr, 1e-10, None)
+        db_arr = 20 * np.log10(rms_arr)
+        
+        is_silent = db_arr < silence_thresh_db
+        
+        # Tìm các khoảng lặng liên tục
+        silent_intervals = []
+        in_silence = False
+        silence_start = 0
+        
+        for i, silent in enumerate(is_silent):
+            if silent:
+                if not in_silence:
+                    in_silence = True
+                    silence_start = i
+            else:
+                if in_silence:
+                    in_silence = False
+                    silence_len = i - silence_start
+                    if silence_len >= min_silence_blocks:
+                        silent_intervals.append((silence_start, i))
+                        
+        if in_silence:
+            silence_len = len(is_silent) - silence_start
+            if silence_len >= min_silence_blocks:
+                silent_intervals.append((silence_start, len(is_silent)))
+                
+        # Xác định điểm cắt ở giữa các khoảng lặng
+        split_blocks = [0]
+        last_split_block = 0
+        
+        for start_block, end_block in silent_intervals:
+            mid_block = (start_block + end_block) // 2
+            
+            # Cắt cưỡng bức nếu khoảng cách quá dài
+            if mid_block - last_split_block > max_chunk_blocks:
+                temp_last = last_split_block
+                while mid_block - temp_last > max_chunk_blocks:
+                    search_start = temp_last + int(max_chunk_blocks * 0.8)
+                    search_end = min(temp_last + max_chunk_blocks, mid_block)
+                    if search_start >= search_end:
+                        break
+                    best_sub_block = np.argmin(db_arr[search_start:search_end]) + search_start
+                    split_blocks.append(best_sub_block)
+                    temp_last = best_sub_block
+                    
+            split_blocks.append(mid_block)
+            last_split_block = split_blocks[-1]
+            
+        # Kiểm tra đoạn cuối cùng
+        total_blocks = len(db_arr)
+        if total_blocks - last_split_block > max_chunk_blocks:
+            temp_last = last_split_block
+            while total_blocks - temp_last > max_chunk_blocks:
+                search_start = temp_last + int(max_chunk_blocks * 0.8)
+                search_end = min(temp_last + max_chunk_blocks, total_blocks)
+                if search_start >= search_end:
+                    break
+                best_sub_block = np.argmin(db_arr[search_start:search_end]) + search_start
+                split_blocks.append(best_sub_block)
+                temp_last = best_sub_block
+                
+        split_blocks.append(total_blocks)
+        
+        unique_blocks = sorted(list(set(split_blocks)))
+        split_samples = [b * block_size for b in unique_blocks]
+        split_samples[-1] = total_samples
+        return split_samples, sr
+
+    def _split_audio(self, audio_path, split_samples, sr):
+        """
+        Ghi các phần chia nhỏ từ file gốc.
+        """
+        basename = os.path.splitext(os.path.basename(audio_path))[0]
+        with sf.SoundFile(audio_path) as f:
+            for i in range(len(split_samples) - 1):
+                start = split_samples[i]
+                end = split_samples[i+1]
+                f.seek(start)
+                data = f.read(end - start)
+                
+                chunk_path = os.path.join(self.input_dir, f"{basename}_chunk_{i:03d}.wav")
+                sf.write(chunk_path, data, sr)
+

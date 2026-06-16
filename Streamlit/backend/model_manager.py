@@ -108,7 +108,7 @@ def scan_samples(samples_dir: Optional[str] = None) -> list[dict]:
         samples_dir: Đường dẫn thư mục samples. Mặc định: models/samples.
 
     Returns:
-        List[dict] với keys: name, audio_path, text_content.
+        List[dict] với keys: name, audio_path, text_content, wps.
     """
     if samples_dir is None:
         samples_dir = os.path.join(MODELS_DIR, "samples")
@@ -136,8 +136,34 @@ def scan_samples(samples_dir: Optional[str] = None) -> list[dict]:
             logger.warning("Không đọc được %s: %s", txt_path, exc)
             continue
 
+        # Tính toán WPS
+        wps = 0.0
+        try:
+            import soundfile as sf
+            info = sf.info(wav_path)
+            duration = float(info.duration)
+            words = len(text_content.strip().split())
+            if duration > 0:
+                wps = round(words / duration, 2)
+        except Exception as exc:
+            logger.debug("Soundfile failed for %s, trying torchaudio: %s", wav_path, exc)
+            try:
+                import torchaudio
+                audio, sr = torchaudio.load(wav_path)
+                duration = float(audio.shape[-1] / sr)
+                words = len(text_content.strip().split())
+                if duration > 0:
+                    wps = round(words / duration, 2)
+            except Exception as e:
+                logger.warning("Không tính được WPS cho %s: %s", wav_path, e)
+
         results.append(
-            {"name": stem, "audio_path": wav_path, "text_content": text_content}
+            {
+                "name": stem,
+                "audio_path": wav_path,
+                "text_content": text_content,
+                "wps": wps,
+            }
         )
 
     return results

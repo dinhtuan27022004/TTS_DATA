@@ -39,6 +39,9 @@ class TTSJob:
     ref_audio_b64: str          # Base64-encoded WAV bytes
     ref_text: str
     target_text: str
+    split_sentences: bool = False
+    min_words: int = 10
+    nfe_step: int = 64
     created_at: float = field(default_factory=time.time)
 
 
@@ -97,6 +100,9 @@ class QueueManager:
         ref_audio_b64: str,
         ref_text: str,
         target_text: str,
+        split_sentences: bool = False,
+        min_words: int = 10,
+        nfe_step: int = 64,
     ) -> str:
         """Tạo job mới và đưa vào hàng đợi.
 
@@ -105,6 +111,9 @@ class QueueManager:
             ref_audio_b64: Reference audio dưới dạng base64.
             ref_text: Transcript của reference audio.
             target_text: Text cần tổng hợp.
+            split_sentences: Tách text thành nhiều câu.
+            min_words: Số từ tối thiểu trong mỗi câu.
+            nfe_step: Số bước chạy DiT.
 
         Returns:
             job_id dạng UUID string.
@@ -116,6 +125,9 @@ class QueueManager:
             ref_audio_b64=ref_audio_b64,
             ref_text=ref_text,
             target_text=target_text,
+            split_sentences=split_sentences,
+            min_words=min_words,
+            nfe_step=nfe_step,
         )
 
         # Đăng ký trạng thái ban đầu
@@ -125,7 +137,7 @@ class QueueManager:
             )
 
         self._job_queue.put(job)
-        logger.info("Đã submit job %s (model=%s)", job_id, model_name)
+        logger.info("Đã submit job %s (model=%s, split=%s)", job_id, model_name, split_sentences)
         return job_id
 
     def get_result(self, job_id: str) -> Optional[JobResult]:
@@ -192,16 +204,24 @@ class QueueManager:
 
             model = model_manager.get_model(models[job.model_name])
 
-            # ── 3. Synthesize ──────────────────────────────────────────────
+            # ── 3. Synthesize ───────────────────────────────────────────────────────
             audio_array, sample_rate = model.synthesize(
                 gen_text=job.target_text,
                 ref_audio_path=ref_tmp_path,
                 ref_text=job.ref_text,
+                split_sentences=job.split_sentences,
+                min_words=job.min_words,
+                nfe_step=job.nfe_step,
             )
 
             # ── 4. Lưu file kết quả ───────────────────────────────────────
-            out_filename = f"{job.job_id}.wav"
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            out_filename = f"{timestamp}.wav"
             out_path = os.path.join(OUTPUTS_DIR, out_filename)
+            # Tránh trùng tên nếu nhiều job chạy/hoàn thành cùng giây (ví dụ: chế độ so sánh 2 model)
+            if os.path.exists(out_path):
+                out_filename = f"{timestamp}_{job.job_id[:8]}.wav"
+                out_path = os.path.join(OUTPUTS_DIR, out_filename)
             sf.write(out_path, audio_array, sample_rate)
 
             duration = len(audio_array) / sample_rate

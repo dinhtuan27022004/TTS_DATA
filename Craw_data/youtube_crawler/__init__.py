@@ -2,8 +2,16 @@
 # Pipeline crawl dữ liệu âm thanh từ YouTube cho huấn luyện TTS tiếng Việt
 
 from .models import VideoInfo, TranscriptionResult, WordTimestamp, SegmentInfo, StatsInfo
-from .downloader import AudioDownloader
-from .segmenter import AudioSegmenter
+
+try:
+    from .downloader import AudioDownloader
+except ImportError:
+    pass  # yt-dlp/pydub chưa cài - bỏ qua
+
+try:
+    from .segmenter import AudioSegmenter
+except ImportError:
+    pass  # soundfile/librosa chưa cài - bỏ qua
 
 try:
     from .music_remover import MusicRemover

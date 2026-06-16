@@ -24,6 +24,12 @@ data/
 artifact/
 Youtube_Data/
 Craw_data/Youtube_Data/
+outputs/
+Streamlit/outputs/
+Processed_DATA_mock/
+evaluate/charts/
+evaluate/results/
+*.tar
 Custom_TTS/ckpts/
 Custom_TTS/runs/
 Custom_TTS/input_csv_wavs/
@@ -49,6 +55,8 @@ Processed_DATA/
 
 # Large Model Files
 models/chunkformer/
+*.pt
+*.pth
 
 # Local test and scratch files
 TMP/

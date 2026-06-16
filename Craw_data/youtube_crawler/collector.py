@@ -66,7 +66,7 @@ class URLCollector:
 
     def __init__(
         self,
-        input_excel_path: str = "Craw_data/Begin.xlsx",
+        input_json_path: str = "Craw_data/Begin.json",
         output_excel_path: str = "Youtube_Data/video_urls.xlsx",
         mapping_path: str = "Craw_data/Youtube_Data/Step_0/mapping.json",
         max_url: int = 1000,
@@ -76,7 +76,7 @@ class URLCollector:
     ):
         """
         Args:
-            input_excel_path: File Begin.xlsx chứa URL kênh (cột đầu tiên)
+            input_json_path: File Begin.json chứa mảng danh sách URL kênh
             output_excel_path: File Excel đầu ra
             mapping_path: Đường dẫn tới file mapping.json của Phase 2 để loại trừ các URL đã tải
             max_url: Tổng số URL tối đa (điều kiện dừng toàn cục)
@@ -84,7 +84,7 @@ class URLCollector:
             timeout_per_channel: Timeout (giây) cho mỗi kênh
             request_timeout: Timeout (giây) cho mỗi HTTP request
         """
-        self.input_excel_path    = input_excel_path
+        self.input_json_path     = input_json_path
         self.output_excel_path   = output_excel_path
         self.mapping_path        = mapping_path
         self.max_url             = max_url
@@ -136,7 +136,7 @@ class URLCollector:
 
         # Đọc danh sách kênh
         channel_urls = self._read_channel_urls()
-        logger.info(f"Đọc được {len(channel_urls)} kênh từ {self.input_excel_path}")
+        logger.info(f"Đọc được {len(channel_urls)} kênh từ {self.input_json_path}")
 
         for i, channel_url in enumerate(channel_urls, 1):
             if len(self.collected_urls) >= self.max_url:
@@ -547,10 +547,23 @@ class URLCollector:
     # ─────────────────────────────────────────────────────────────────────────
 
     def _read_channel_urls(self) -> List[str]:
-        """Đọc file Begin.xlsx, lấy URL kênh từ cột đầu tiên."""
-        df = pd.read_excel(self.input_excel_path, header=None)
-        urls = df.iloc[:, 0].dropna().astype(str).tolist()
-        return [u.strip() for u in urls if u.strip()]
+        """Đọc file Begin.json, chứa danh sách URL kênh."""
+        try:
+            with open(self.input_json_path, 'r', encoding='utf-8') as f:
+                urls = json.load(f)
+        except Exception as e:
+            logger.error(f"Lỗi khi đọc file {self.input_json_path}: {e}")
+            return []
+            
+        unique_urls = []
+        seen = set()
+        for u in urls:
+            u_clean = str(u).strip()
+            if u_clean and u_clean not in seen:
+                seen.add(u_clean)
+                unique_urls.append(u_clean)
+                
+        return unique_urls
 
     def _load_existing_output(self):
         """Resume: đọc output Excel hiện có."""

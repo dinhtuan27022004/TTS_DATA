@@ -24,6 +24,21 @@ class TTSRequest(BaseModel):
     ref_audio_b64: str = Field(..., description="Base64-encoded WAV bytes của reference audio")
     ref_text: str = Field(..., description="Transcript tương ứng với reference audio")
     target_text: str = Field(..., description="Nội dung text cần tổng hợp thành giọng nói")
+    split_sentences: bool = Field(
+        False,
+        description="Nếu True, tách target_text thành nhiều câu rồi ghép audio lại.",
+    )
+    min_words: int = Field(
+        10,
+        ge=1,
+        description="Số từ tối thiểu trong mỗi câu khi split_sentences=True.",
+    )
+    nfe_step: int = Field(
+        64,
+        ge=16,
+        le=128,
+        description="Số bước chạy DiT (NFE Steps) cho ODE solver.",
+    )
 
 
 class TTSSubmitResponse(BaseModel):
@@ -56,8 +71,32 @@ class SampleInfo(BaseModel):
     name: str
     audio_path: str
     text_content: str
+    wps: Optional[float] = None
 
 
 class SamplesListResponse(BaseModel):
     """Response cho GET /api/samples."""
     samples: list[SampleInfo]
+
+
+class CompareSubmitResponse(BaseModel):
+    """Response cho POST /api/tts/compare - trả về job_id của cả 2 model."""
+    job_id_v0: str = Field(..., description="UUID của job chạy model f5-tts-v0")
+    job_id_selected: str = Field(..., description="UUID của job chạy model đang chọn")
+    model_v0: str = Field(..., description="Tên model v0 (baseline)")
+    model_selected: str = Field(..., description="Tên model đang so sánh")
+
+
+class CompareJobResult(BaseModel):
+    """Kết quả của một trong hai model trong so sánh."""
+    model_name: str
+    status: JobStatus
+    audio_url: Optional[str] = None
+    duration: Optional[float] = None
+    error: Optional[str] = None
+
+
+class CompareResultResponse(BaseModel):
+    """Response tổng hợp kết quả so sánh 2 model."""
+    v0: CompareJobResult
+    selected: CompareJobResult

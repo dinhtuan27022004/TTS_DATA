@@ -21,7 +21,6 @@ from evaluate.models import (
     EvaluationReport,
     RunHistoryEntry,
     ResultFileData,
-    TTSModel,
 )
 
 __all__ = [
@@ -31,5 +30,4 @@ __all__ = [
     "EvaluationReport",
     "RunHistoryEntry",
     "ResultFileData",
-    "TTSModel",
 ]

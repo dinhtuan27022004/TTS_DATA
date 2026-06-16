@@ -93,9 +93,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # CẤU HÌNH
 # ==============================================================================
 BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-INPUT_DIR = os.path.join(BASE_DIR, "Processed_DATA", "PhoAudioBook")
-
-# Số worker chạy song song
+INPUT_DIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(BASE_DIR, "Processed_DATA", "PhoAudioBook")
 NUM_PROCESSES = 8  # Tối ưu cho 1 GPU: >4 worker tranh GPU → chậm hơn (11→7 it/s với 8 workers)
 
 # Số file mỗi worker xử lý trước khi EXIT để OS thu hồi RAM.
@@ -192,8 +190,9 @@ def worker_task(shared_model, file_list, process_idx, result_queue):
                 enhanced_resampled = enhanced.clone()
             enhanced_resampled = enhanced_resampled.detach()
 
-            # Lưu sample nghe thử
-            if idx == 0:
+            # Lưu sample nghe thử (xác suất 1/1000 để tránh đầy ổ cứng)
+            import random
+            if random.randint(1, 1000) == 1:
                 os.makedirs(TMP_DIR, exist_ok=True)
                 base = os.path.splitext(os.path.basename(filepath))[0]
                 orig_wav, _ = torchaudio.load(filepath)

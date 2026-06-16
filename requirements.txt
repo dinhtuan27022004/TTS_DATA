@@ -38,6 +38,7 @@ uvicorn==0.48.0
 vocos==0.1.0
 wandb==0.27.0
 whisper_normalizer==0.1.12
+faster-whisper==1.1.1
 gradio==6.15.2
 gradio_client==2.5.0
 numpy==1.26.4

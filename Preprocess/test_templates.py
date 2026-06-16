@@ -16,7 +16,7 @@ from typing import List, Tuple
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 
-from components.tts.F5_V0 import F5TTSVietnamese
+from components.tts.F5_TTS import F5TTSVietnamese
 from Preprocess.generate_numeric_data import NumericTextGenerator, RefAudioSelector, digits_to_words
 
 # Constants
@@ -86,7 +86,11 @@ def main():
     print(f"Prepared {len(test_cases)} total test cases (1 sample for every single template).")
     
     print("\n=== Step 2: Initialize F5-TTS Model ===")
-    model = F5TTSVietnamese(vocoder_name="vocos", speed=1.0)
+    model = F5TTSVietnamese(
+        ckpt_file="/home/reg/TTS_DATA/models/f5-tts-v0/model.pt",
+        vocoder_name="vocos",
+        speed=1.0,
+    )
     
     # We will pick a single high-quality reference audio to use for all tests
     # to make listening and comparisons consistent
