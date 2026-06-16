@@ -1,5 +1,5 @@
 """TTS Model components."""
 
-from components.tts.F5_V0 import F5TTSVietnamese
+from components.tts.F5_TTS import F5TTSVietnamese
 
 __all__ = ["F5TTSVietnamese"]

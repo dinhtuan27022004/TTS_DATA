@@ -24,6 +24,11 @@ data/
 artifact/
 Youtube_Data/
 Craw_data/Youtube_Data/
+Custom_TTS/ckpts/
+Custom_TTS/runs/
+Custom_TTS/input_csv_wavs/
+Custom_TTS/src/custom_tts/infer/examples/**/*.wav
+Custom_TTS/src/custom_tts/infer/examples/**/*.flac
 
 # Excel temp files
 ~$*.xlsx
