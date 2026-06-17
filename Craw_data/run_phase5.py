@@ -20,10 +20,10 @@ def main():
     print("=== Phase 5: Audio Segmentation ===")
 
     segmenter = AudioSegmenter(
-        input_dir="Youtube_Data/Step_1",
-        output_dir="Youtube_Data/Step_2",
-        min_duration=3.0,
-        max_duration=7.0
+        input_dir="Craw_data/Youtube_Data/Step_1",
+        output_dir="Craw_data/Youtube_Data/Step_2",
+        min_duration=5.0,
+        max_duration=15.0
     )
 
     segments = segmenter.segment_all()

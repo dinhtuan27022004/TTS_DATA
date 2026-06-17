@@ -10,7 +10,6 @@ Chứa các dataclass mô tả cấu trúc dữ liệu chính:
 - TTSModel: abstract base class cho mô hình TTS
 """
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -37,19 +36,19 @@ class MetricResult:
     """Chứa kết quả tính toán metric cho một mẫu.
 
     Attributes:
-        sample_id: ID của mẫu đã đánh giá
-        text: Nội dung text gốc
-        mcd: Mel Cepstral Distortion (None nếu lỗi)
-        pesq: PESQ score (None nếu lỗi)
-        stoi: STOI score trong [0, 1] (None nếu lỗi)
-        utmos: UTMOS MOS prediction trong [1.0, 5.0] (None nếu lỗi)
+        sample_id:      ID của mẫu đã đánh giá
+        text:           Nội dung text gốc
+        pesq:           PESQ score (None nếu lỗi)
+        stoi:           STOI score trong [0, 1] (None nếu lỗi)
+        utmos:          UTMOS MOS prediction trong [1.0, 5.0] (None nếu lỗi)
         f0_correlation: F0 correlation trong [-1.0, 1.0] (None nếu lỗi)
-        wer: Word Error Rate >= 0 (None nếu lỗi)
+        wer:            Word Error Rate >= 0 (None nếu lỗi)
+        cer:            Character Error Rate >= 0 (None nếu lỗi)
+        transcription:  Text nhận dạng từ ASR (None nếu lỗi)
     """
 
     sample_id: str
     text: str
-    mcd: Optional[float] = None
     pesq: Optional[float] = None
     stoi: Optional[float] = None
     utmos: Optional[float] = None
@@ -114,27 +113,3 @@ class ResultFileData:
     summary: Dict[str, float] = field(default_factory=dict)
 
 
-class TTSModel(ABC):
-    """Abstract base class cho mô hình TTS.
-
-    Mọi mô hình TTS cần đánh giá phải kế thừa class này
-    và implement phương thức synthesize.
-    """
-
-    @abstractmethod
-    def synthesize(self, gen_text: str, ref_audio_path: Optional[str] = None, ref_text: Optional[str] = None) -> Tuple[np.ndarray, int]:
-        """Tổng hợp audio từ text.
-
-        Args:
-            gen_text: Nội dung text cần tổng hợp thành giọng nói.
-            ref_audio_path: Đường dẫn đến audio tham chiếu (dùng cho voice cloning).
-                Nếu None, model sử dụng ref audio mặc định.
-            ref_text: Transcript của ref audio.
-                Nếu None, model sử dụng ref_text mặc định hoặc gen_text.
-
-        Returns:
-            Tuple gồm:
-                - numpy array chứa dữ liệu audio (float32)
-                - sample rate (int)
-        """
-        ...

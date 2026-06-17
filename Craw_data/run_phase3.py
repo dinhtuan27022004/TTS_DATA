@@ -3,7 +3,7 @@ Phase 3: Music Removal
 Script chạy Phase 3 - Loại bỏ nhạc nền bằng Facebook Demucs.
 
 Cách dùng:
-    cd D:\CO_2026\TTS-DATA
+    cd D:\\CO_2026\\TTS-DATA
     python Craw_data/run_phase3.py
 """
 
@@ -20,8 +20,8 @@ def main():
     print("=== Phase 3: Music Removal (Demucs) ===")
 
     remover = MusicRemover(
-        input_dir="Youtube_Data/Step_0",
-        output_dir="Youtube_Data/Step_1"
+        input_dir="Craw_data/Youtube_Data/Step_0",
+        output_dir="Craw_data/Youtube_Data/Step_1"
     )
 
     processed = remover.process_all()

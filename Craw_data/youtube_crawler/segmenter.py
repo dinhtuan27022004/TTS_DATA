@@ -61,66 +61,90 @@ class AudioSegmenter:
 
         # Danh sách tất cả segments đã tạo (dùng cho stats)
         self.all_segments: List[SegmentInfo] = []
+        self.processed_json_path = os.path.join(self.output_dir, "processed_segments.json")
+
+    def _load_processed_files(self) -> set:
+        if os.path.exists(self.processed_json_path):
+            try:
+                with open(self.processed_json_path, "r", encoding="utf-8") as f:
+                    return set(json.load(f))
+            except Exception as e:
+                logger.warning(f"Không thể đọc file {self.processed_json_path}: {e}")
+        return set()
+
+    def _save_processed_files(self, processed_set: set):
+        try:
+            with open(self.processed_json_path, "w", encoding="utf-8") as f:
+                json.dump(list(processed_set), f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"Lỗi lưu file {self.processed_json_path}: {e}")
 
     def segment_all(self) -> List[SegmentInfo]:
-        """
-        Cắt tất cả file thành segments, resume từ vị trí dừng.
-        
-        - Liệt kê tất cả file .json trong input_dir (timestamps từ Phase 4)
-        - Skip file gốc đã có segments trong output (resume)
-        - Cắt audio và lưu segments
-        - Lưu stats.json
-        
-        Returns:
-            Danh sách SegmentInfo (path, transcript, duration)
-        """
-        # Liệt kê tất cả file JSON timestamps trong input_dir
-        all_json_files = [
-            f for f in os.listdir(self.input_dir)
-            if f.lower().endswith(".json")
-        ]
-        all_json_files.sort()
+        import time
+        max_empty_retries = 3
+        empty_retries = 0
+        new_segments = []
 
-        if not all_json_files:
-            logger.warning(f"Không tìm thấy file JSON nào trong {self.input_dir}")
-            return []
+        processed_set = self._load_processed_files()
+        if processed_set:
+            logger.info(f"Đã nạp {len(processed_set)} files đã xử lý từ JSON.")
 
-        logger.info(f"Tìm thấy {len(all_json_files)} file JSON timestamps")
+        while True:
+            # Liệt kê tất cả file JSON timestamps trong input_dir
+            all_json_files = [
+                f for f in os.listdir(self.input_dir)
+                if f.lower().endswith(".json")
+                and f != "processed_demucs.json"
+            ]
+            all_json_files.sort()
 
-        # Kiểm tra file nào đã xử lý (resume)
-        files_to_process = []
-        for json_filename in all_json_files:
-            basename = os.path.splitext(json_filename)[0]
-            if self._is_already_segmented(basename):
-                logger.info(f"[SKIP] Đã có segments: {basename}")
-            else:
+            # Kiểm tra file nào đã xử lý (resume)
+            files_to_process = []
+            for json_filename in all_json_files:
+                basename = os.path.splitext(json_filename)[0]
+                if basename in processed_set:
+                    continue
                 files_to_process.append(json_filename)
 
-        skipped = len(all_json_files) - len(files_to_process)
-        logger.info(f"Đã xử lý trước đó: {skipped} files")
-        logger.info(f"Cần xử lý thêm: {len(files_to_process)} files")
+            if not files_to_process:
+                logger.info("Chưa có file mới. Chờ 10 giây và thử lại...")
+                time.sleep(10)
+                continue
 
-        if not files_to_process:
-            logger.info("Tất cả file đã được segment. Không cần xử lý thêm.")
-            # Vẫn lưu stats dựa trên file hiện có trong output
+            empty_retries = 0
+            logger.info(f"Cần xử lý thêm lô mới: {len(files_to_process)} files")
+
+            # Xử lý từng file
+            for json_filename in tqdm(files_to_process, desc="Segmenting"):
+                json_path = os.path.join(self.input_dir, json_filename)
+                basename = os.path.splitext(json_filename)[0]
+                try:
+                    segments = self._process_json_file(json_path)
+                    new_segments.extend(segments)
+                    logger.info(f"[OK] {json_filename} -> {len(segments)} segments")
+                    
+                    # Xóa file gốc (.json và .wav) ở Step_1 sau khi xử lý xong
+                    wav_path = os.path.join(self.input_dir, f"{basename}.wav")
+                    try:
+                        if os.path.exists(json_path):
+                            os.remove(json_path)
+                        if os.path.exists(wav_path):
+                            os.remove(wav_path)
+                        logger.info(f"[DELETED] Đã xóa {json_filename} và {basename}.wav từ {self.input_dir}")
+                    except Exception as e:
+                        logger.error(f"[FAIL] Lỗi khi xóa file gốc của {basename}: {e}")
+
+                except Exception as e:
+                    logger.error(f"[FAIL] Lỗi xử lý {json_filename}: {e}")
+                
+                # Ghi nhận đã xử lý xong file này
+                processed_set.add(basename)
+
+            # Lưu stats.json và processed_segments.json
+            self._save_processed_files(processed_set)
             self._save_stats()
-            return []
 
-        # Xử lý từng file
-        new_segments = []
-        for json_filename in tqdm(files_to_process, desc="Segmenting"):
-            json_path = os.path.join(self.input_dir, json_filename)
-            try:
-                segments = self._process_json_file(json_path)
-                new_segments.extend(segments)
-                logger.info(f"[OK] {json_filename} -> {len(segments)} segments")
-            except Exception as e:
-                logger.error(f"[FAIL] Lỗi xử lý {json_filename}: {e}")
-
-        # Lưu stats.json
-        self._save_stats()
-
-        logger.info(f"Hoàn thành! Tạo {len(new_segments)} segments mới.")
+        logger.info(f"Hoàn thành! Tạo tổng cộng {len(new_segments)} segments mới trong phiên này.")
         return new_segments
 
     def _is_already_segmented(self, basename: str) -> bool:
@@ -233,9 +257,9 @@ class AudioSegmenter:
             # Lưu WAV
             sf.write(wav_output, segment_audio, sr)
 
-            # Lưu transcript TXT
-            with open(txt_output, "w", encoding="utf-8") as f:
-                f.write(transcript)
+            # [TẮT TẠM THỜI] Bỏ việc tạo TXT ở Phase 5 để nhường cho Phase 6 dùng Whisper sinh ra chữ chuẩn hơn!
+            # with open(txt_output, "w", encoding="utf-8") as f:
+            #     f.write(transcript)
 
             # Tạo SegmentInfo
             duration = end_time - start_time
@@ -253,15 +277,17 @@ class AudioSegmenter:
 
     def _find_cut_points(self, timestamps: List[WordTimestamp]) -> List[Tuple[float, float, str]]:
         """
-        Tìm điểm cắt tối ưu dựa trên word boundaries.
+        Tìm điểm cắt tối ưu dựa trên word boundaries và khoảng lặng (pauses).
         
         Thuật toán:
         - Duyệt qua từng word timestamp
-        - Mở rộng segment cho đến khi đạt max_duration hoặc hết timestamps
-        - Nếu segment đủ dài (>= min_duration) và có transcript -> giữ lại
+        - Mở rộng segment cho đến khi đạt max_duration
+        - Lùi lại (step back) từ điểm cuối để tìm khoảng lặng (gap > 0.05s) giữa các từ.
+        - Nếu tìm thấy khoảng lặng và segment vẫn đủ min_duration, cắt tại đó.
+        - Nếu không có khoảng lặng nào (đoạn nói liên tục), cắt tại điểm lớn nhất <= max_duration.
         - Nếu segment quá ngắn -> skip từ đầu, thử lại
         
-        QUAN TRỌNG: Điểm cắt luôn nằm tại word boundary (end_time của từ cuối)
+        QUAN TRỌNG: Tránh cắt đôi một cụm từ liên tục (gap = 0.0) nếu có thể.
         
         Args:
             timestamps: Danh sách WordTimestamp đã sắp xếp theo thời gian
@@ -274,15 +300,14 @@ class AudioSegmenter:
         if not timestamps:
             return segments
 
-        i = 0  # Index từ hiện tại
         n = len(timestamps)
+        i = 0  # Index từ hiện tại
 
         while i < n:
             segment_start = timestamps[i].start_time
-            segment_words = []
+            
+            # Mở rộng segment cho đến khi đạt max_duration
             j = i
-
-            # Mở rộng segment cho đến khi đạt max_duration hoặc hết timestamps
             while j < n:
                 word_end = timestamps[j].end_time
                 current_duration = word_end - segment_start
@@ -290,22 +315,41 @@ class AudioSegmenter:
                 # Dừng nếu thêm từ này sẽ vượt max_duration
                 if current_duration > self.max_duration:
                     break
-
-                segment_words.append(timestamps[j].word)
+                    
                 j += 1
 
-            # Kiểm tra segment có đủ dài không
             if j > i:
-                segment_end = timestamps[j - 1].end_time
+                best_cut_index = j - 1
+                
+                # Step back để tìm khoảng lặng (gap > 0.05s) tự nhiên
+                candidate = best_cut_index
+                while candidate >= i:
+                    duration = timestamps[candidate].end_time - segment_start
+                    if duration < self.min_duration:
+                        break # Không thể lùi thêm vì sẽ vi phạm min_duration
+                        
+                    if candidate + 1 < n:
+                        gap = timestamps[candidate+1].start_time - timestamps[candidate].end_time
+                        if gap > 0.05: # Found a natural pause
+                            best_cut_index = candidate
+                            break
+                    else:
+                        break # Từ cuối cùng rồi
+                    
+                    candidate -= 1
+                    
+                segment_end = timestamps[best_cut_index].end_time
                 duration = segment_end - segment_start
+                
+                segment_words = [t.word for t in timestamps[i:best_cut_index+1]]
                 transcript = " ".join(segment_words)
-
+                
                 # Segment hợp lệ: đủ dài VÀ có transcript
                 if duration >= self.min_duration and transcript.strip():
                     segments.append((segment_start, segment_end, transcript))
-                    i = j  # Tiến đến từ tiếp theo sau segment
+                    i = best_cut_index + 1
                 else:
-                    # Segment quá ngắn, skip từ đầu và thử lại
+                    # Segment quá ngắn (có thể do step back thất bại hoặc do file quá ngắn)
                     i += 1
             else:
                 # Không thêm được từ nào (từ đầu tiên đã vượt max_duration)

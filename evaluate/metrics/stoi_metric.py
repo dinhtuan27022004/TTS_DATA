@@ -10,6 +10,8 @@ import logging
 import numpy as np
 from pystoi import stoi
 
+from evaluate.metrics.audio_utils import prepare_intrusive_pair
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,12 +30,11 @@ def compute_stoi(ref_audio: np.ndarray, syn_audio: np.ndarray, sr: int) -> float
     Returns:
         Điểm STOI dạng float trong khoảng [0, 1].
     """
-    # Căn chỉnh độ dài: cắt tín hiệu dài hơn về cùng độ dài ngắn hơn
-    min_len = min(len(ref_audio), len(syn_audio))
-    ref_audio = ref_audio[:min_len]
-    syn_audio = syn_audio[:min_len]
+    ref_audio, syn_audio = prepare_intrusive_pair(ref_audio, syn_audio)
+    if len(ref_audio) < sr * 0.25 or len(syn_audio) < sr * 0.25:
+        logger.warning("Audio quá ngắn để tính STOI sau khi trim/căn chỉnh")
+        return 0.0
 
-    # Tính STOI
     score = stoi(ref_audio, syn_audio, sr, extended=False)
 
     # Clamp kết quả vào [0, 1]

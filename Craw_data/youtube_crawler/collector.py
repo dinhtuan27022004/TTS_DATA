@@ -66,8 +66,9 @@ class URLCollector:
 
     def __init__(
         self,
-        input_excel_path: str = "Craw_data/Begin.xlsx",
+        input_json_path: str = "Craw_data/Begin.json",
         output_excel_path: str = "Youtube_Data/video_urls.xlsx",
+        mapping_path: str = "Craw_data/Youtube_Data/Step_0/mapping.json",
         max_url: int = 1000,
         max_url_per_channel: int = 200,
         timeout_per_channel: float = 120.0,
@@ -75,24 +76,41 @@ class URLCollector:
     ):
         """
         Args:
-            input_excel_path: File Begin.xlsx chứa URL kênh (cột đầu tiên)
+            input_json_path: File Begin.json chứa mảng danh sách URL kênh
             output_excel_path: File Excel đầu ra
+            mapping_path: Đường dẫn tới file mapping.json của Phase 2 để loại trừ các URL đã tải
             max_url: Tổng số URL tối đa (điều kiện dừng toàn cục)
             max_url_per_channel: Số URL tối đa lấy từ mỗi kênh
             timeout_per_channel: Timeout (giây) cho mỗi kênh
             request_timeout: Timeout (giây) cho mỗi HTTP request
         """
-        self.input_excel_path    = input_excel_path
+        self.input_json_path     = input_json_path
         self.output_excel_path   = output_excel_path
+        self.mapping_path        = mapping_path
         self.max_url             = max_url
         self.max_url_per_channel = max_url_per_channel
         self.timeout_per_channel = timeout_per_channel
         self.request_timeout     = request_timeout
 
         self.collected_urls: Set[str]    = set()
+        self.downloaded_urls: Set[str]   = self._load_downloaded_urls()
         self.results: List[VideoInfo]    = []
         self._session = requests.Session()
         self._session.headers.update(_HEADERS)
+
+    def _load_downloaded_urls(self) -> Set[str]:
+        """Đọc mapping.json để lấy danh sách URL đã được tải bởi Phase 2."""
+        downloaded = set()
+        if os.path.exists(self.mapping_path):
+            try:
+                with open(self.mapping_path, "r", encoding="utf-8") as f:
+                    mapping_data = json.load(f)
+                    if isinstance(mapping_data, dict):
+                        downloaded = set(mapping_data.keys())
+                        logger.info(f"Đã nạp {len(downloaded)} URLs đã tải từ {self.mapping_path}")
+            except Exception as e:
+                logger.warning(f"Không thể đọc {self.mapping_path}: {e}")
+        return downloaded
 
     # ─────────────────────────────────────────────────────────────────────────
     # Public API
@@ -118,7 +136,7 @@ class URLCollector:
 
         # Đọc danh sách kênh
         channel_urls = self._read_channel_urls()
-        logger.info(f"Đọc được {len(channel_urls)} kênh từ {self.input_excel_path}")
+        logger.info(f"Đọc được {len(channel_urls)} kênh từ {self.input_json_path}")
 
         for i, channel_url in enumerate(channel_urls, 1):
             if len(self.collected_urls) >= self.max_url:
@@ -231,6 +249,8 @@ class URLCollector:
         url = f"https://www.youtube.com/watch?v={video_id}"
         if url in self.collected_urls:
             return False
+        if url in self.downloaded_urls:
+            return False  # Đã tải ở Phase 2, bỏ qua
         self.results.append(VideoInfo(channel_name=channel_name, title=title, url=url))
         self.collected_urls.add(url)
         return True
@@ -321,16 +341,29 @@ class URLCollector:
             for item in grid_contents:
                 # Layout mới: richItemRenderer
                 rich_item = item.get("richItemRenderer", {})
-                video_renderer = rich_item.get("content", {}).get("videoRenderer", {})
+                content = rich_item.get("content", {})
+                video_renderer = content.get("videoRenderer", {})
+                lockup_view_model = content.get("lockupViewModel", {})
 
                 # Layout cũ: gridVideoRenderer
-                if not video_renderer:
-                    video_renderer = item.get("gridVideoRenderer", {})
+                grid_video_renderer = item.get("gridVideoRenderer", {})
 
-                if video_renderer:
+                vid, title = "", ""
+                if lockup_view_model:
+                    vid = lockup_view_model.get("contentId", "")
+                    title = (
+                        lockup_view_model.get("metadata", {})
+                        .get("lockupMetadataViewModel", {})
+                        .get("title", {})
+                        .get("content", "")
+                    )
+                elif video_renderer:
                     vid, title = self._extract_video_info(video_renderer)
-                    if vid:
-                        videos.append((vid, title))
+                elif grid_video_renderer:
+                    vid, title = self._extract_video_info(grid_video_renderer)
+
+                if vid:
+                    videos.append((vid, title))
                     continue
 
                 # Continuation token
@@ -370,15 +403,29 @@ class URLCollector:
 
                 for item in items:
                     rich_item = item.get("richItemRenderer", {})
-                    video_renderer = rich_item.get("content", {}).get("videoRenderer", {})
+                    content = rich_item.get("content", {})
+                    video_renderer = content.get("videoRenderer", {})
+                    lockup_view_model = content.get("lockupViewModel", {})
 
-                    if not video_renderer:
-                        video_renderer = item.get("gridVideoRenderer", {})
+                    # Layout cũ: gridVideoRenderer
+                    grid_video_renderer = item.get("gridVideoRenderer", {})
 
-                    if video_renderer:
+                    vid, title = "", ""
+                    if lockup_view_model:
+                        vid = lockup_view_model.get("contentId", "")
+                        title = (
+                            lockup_view_model.get("metadata", {})
+                            .get("lockupMetadataViewModel", {})
+                            .get("title", {})
+                            .get("content", "")
+                        )
+                    elif video_renderer:
                         vid, title = self._extract_video_info(video_renderer)
-                        if vid:
-                            videos.append((vid, title))
+                    elif grid_video_renderer:
+                        vid, title = self._extract_video_info(grid_video_renderer)
+
+                    if vid:
+                        videos.append((vid, title))
                         continue
 
                     cont_item = item.get("continuationItemRenderer", {})
@@ -500,10 +547,23 @@ class URLCollector:
     # ─────────────────────────────────────────────────────────────────────────
 
     def _read_channel_urls(self) -> List[str]:
-        """Đọc file Begin.xlsx, lấy URL kênh từ cột đầu tiên."""
-        df = pd.read_excel(self.input_excel_path, header=None)
-        urls = df.iloc[:, 0].dropna().astype(str).tolist()
-        return [u.strip() for u in urls if u.strip()]
+        """Đọc file Begin.json, chứa danh sách URL kênh."""
+        try:
+            with open(self.input_json_path, 'r', encoding='utf-8') as f:
+                urls = json.load(f)
+        except Exception as e:
+            logger.error(f"Lỗi khi đọc file {self.input_json_path}: {e}")
+            return []
+            
+        unique_urls = []
+        seen = set()
+        for u in urls:
+            u_clean = str(u).strip()
+            if u_clean and u_clean not in seen:
+                seen.add(u_clean)
+                unique_urls.append(u_clean)
+                
+        return unique_urls
 
     def _load_existing_output(self):
         """Resume: đọc output Excel hiện có."""
