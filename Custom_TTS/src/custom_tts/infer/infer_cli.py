@@ -163,6 +163,12 @@ parser.add_argument(
     type=float,
     help=f"Fix the total duration (ref and gen audios) in seconds, default {fix_duration}",
 )
+parser.add_argument(
+    "--semantic_mode",
+    type=str,
+    choices=["predict", "zero", "none"],
+    help="Semantic conditioning mode for SemanticF5TTS: predict | zero | none, default predict",
+)
 args = parser.parse_args()
 
 
@@ -203,6 +209,7 @@ cfg_strength = args.cfg_strength or config.get("cfg_strength", cfg_strength)
 sway_sampling_coef = args.sway_sampling_coef or config.get("sway_sampling_coef", sway_sampling_coef)
 speed = args.speed or config.get("speed", speed)
 fix_duration = args.fix_duration or config.get("fix_duration", fix_duration)
+semantic_mode = args.semantic_mode or config.get("semantic_mode", "predict")
 
 
 # patches for pip pkg user
@@ -340,6 +347,7 @@ def main():
             sway_sampling_coef=sway_sampling_coef,
             speed=speed,
             fix_duration=fix_duration,
+            semantic_mode=semantic_mode,
         )
         generated_audio_segments.append(audio_segment)
 

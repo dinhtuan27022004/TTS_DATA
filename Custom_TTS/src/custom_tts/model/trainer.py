@@ -110,6 +110,7 @@ class Trainer:
                 )
 
         self.epochs = epochs
+        self.learning_rate = learning_rate
         self.num_warmup_updates = num_warmup_updates
         self.save_per_updates = save_per_updates
         self.keep_last_n_checkpoints = keep_last_n_checkpoints
@@ -294,8 +295,22 @@ class Trainer:
             checkpoint["model_state_dict"] = self._adapt_state_dict_for_model(checkpoint["model_state_dict"])
             self._unwrap_model().load_state_dict(checkpoint["model_state_dict"], strict=False)
             self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            
+            # Override loaded learning rate with target learning rate from config
+            if hasattr(self, "learning_rate") and self.learning_rate is not None:
+                for param_group in self.optimizer.param_groups:
+                    param_group['lr'] = self.learning_rate
+            
             if self.scheduler:
                 self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+                # Update scheduler base learning rates as well
+                if hasattr(self, "learning_rate") and self.learning_rate is not None:
+                    if hasattr(self.scheduler, "base_lrs"):
+                        self.scheduler.base_lrs = [self.learning_rate] * len(self.scheduler.base_lrs)
+                    if hasattr(self.scheduler, "_schedulers"):
+                        for sub_sched in self.scheduler._schedulers:
+                            if hasattr(sub_sched, "base_lrs"):
+                                sub_sched.base_lrs = [self.learning_rate] * len(sub_sched.base_lrs)
             update = checkpoint["update"]
         else:
             checkpoint["model_state_dict"] = {
@@ -462,6 +477,9 @@ class Trainer:
                     if self.logger == "tensorboard":
                         self.writer.add_scalar("loss", loss.item(), global_update)
                         self.writer.add_scalar("lr", self.scheduler.get_last_lr()[0], global_update)
+                        for name, value in metrics.items():
+                            if name.startswith("loss/"):
+                                self.writer.add_scalar(name, value, global_update)
 
                 if global_update % self.save_per_updates == 0 and self.accelerator.sync_gradients:
                     self.save_checkpoint(global_update)

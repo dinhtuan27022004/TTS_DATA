@@ -147,7 +147,7 @@ class SemanticCFM(nn.Module):
         return loss, cond, pred
 
     @torch.no_grad()
-    def sample(self, cond, text, duration, **kwargs):
+    def sample(self, cond, text, duration, semantic_mode: str = "predict", **kwargs):
         if isinstance(duration, int):
             target_len = duration
         elif torch.is_tensor(duration):
@@ -155,7 +155,13 @@ class SemanticCFM(nn.Module):
         else:
             target_len = None
 
-        semantic = self.predict_semantic(text, target_len=target_len)
+        if semantic_mode == "predict":
+            semantic = self.predict_semantic(text, target_len=target_len)
+        elif semantic_mode in {"zero", "none"}:
+            semantic = None
+        else:
+            raise ValueError(f"Unsupported semantic_mode: {semantic_mode}")
+
         return self.cfm.sample(cond=cond, text=text, duration=duration, semantic=semantic, **kwargs)
 
 

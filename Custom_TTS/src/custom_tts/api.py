@@ -136,6 +136,7 @@ class F5TTS:
         file_wave=None,
         file_spec=None,
         seed=None,
+        semantic_mode="predict",
     ):
         if seed is None:
             self.seed = random.randint(0, sys.maxsize)
@@ -160,6 +161,7 @@ class F5TTS:
             speed=speed,
             fix_duration=fix_duration,
             device=self.device,
+            semantic_mode=semantic_mode,
         )
 
         if file_wave is not None:

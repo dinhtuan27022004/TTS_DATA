@@ -81,11 +81,13 @@ def convert_to_pcm_wav(input_path: str) -> str:
 
     try:
         audio_np = audio.cpu().numpy()
-        if audio_np.ndim > 1 and audio_np.shape[0] > 1:
-            audio_np = audio_np.T
+        if audio_np.ndim > 1:
+            audio_np = audio_np.T  # Transpose to [samples, channels]
+            n_channels = audio_np.shape[1]
+        else:
+            n_channels = 1
 
         pcm_data = (np.clip(audio_np, -1.0, 1.0) * 32767.0).astype(np.int16)
-        n_channels = audio_np.shape[1] if audio_np.ndim > 1 else 1
 
         with wave.open(temp_wav_path, "wb") as wav_file:
             wav_file.setnchannels(n_channels)
