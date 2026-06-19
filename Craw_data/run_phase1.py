@@ -65,13 +65,13 @@ def main():
     # -------------------------------------------------------------------------
     # Cấu hình thu thập — chỉnh theo nhu cầu
     # -------------------------------------------------------------------------
-    MAX_URL_TOTAL       = 5000   # Tổng URL tối đa cần thu thập
-    MAX_URL_PER_CHANNEL = 50  # URL tối đa lấy từ mỗi kênh
+    MAX_URL_TOTAL       = 10   # Tổng URL tối đa cần thu thập
+    MAX_URL_PER_CHANNEL = 500  # URL tối đa lấy từ mỗi kênh
     TIMEOUT_PER_CHANNEL = 120.0  # Giây timeout mỗi kênh
     REQUEST_TIMEOUT     = 30.0   # Giây timeout mỗi HTTP request
 
     collector = URLCollector(
-        input_json_path="Craw_data/begin_QT.json",
+        input_json_path="/home/reg/TTS_DATA/Craw_data/begin_QT.json",
         output_excel_path="Craw_data/Youtube_Data/video_urls_QT.xlsx",
         max_url=MAX_URL_TOTAL,
         max_url_per_channel=MAX_URL_PER_CHANNEL,
