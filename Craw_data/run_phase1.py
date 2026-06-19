@@ -71,8 +71,8 @@ def main():
     REQUEST_TIMEOUT     = 30.0   # Giây timeout mỗi HTTP request
 
     collector = URLCollector(
-        input_json_path="Craw_data/Begin.json",
-        output_excel_path="Craw_data/Youtube_Data/video_urls.xlsx",
+        input_json_path="Craw_data/begin_QT.json",
+        output_excel_path="Craw_data/Youtube_Data/video_urls_QT.xlsx",
         max_url=MAX_URL_TOTAL,
         max_url_per_channel=MAX_URL_PER_CHANNEL,
         timeout_per_channel=TIMEOUT_PER_CHANNEL,

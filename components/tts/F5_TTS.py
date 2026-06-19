@@ -212,6 +212,7 @@ class BaseF5TTSVietnamese(TTSModel):
         min_words: int = 10,
         custom_duration_fn: Optional[Callable] = None,
         nfe_step: int = 64,
+        clip_ref_audio: bool = False,
     ) -> Tuple[np.ndarray, int]:
         ref_audio_used = ref_audio_path or self.ref_audio_path
         ref_text_used = ref_text or self.ref_text
@@ -229,6 +230,7 @@ class BaseF5TTSVietnamese(TTSModel):
             ref_audio_processed, ref_text_processed = self._preprocess_ref_audio_text(
                 pcm_ref_wav_path,
                 ref_text_lower,
+                clip_short=clip_ref_audio,
                 show_info=lambda x: None,
             )
 
