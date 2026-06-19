@@ -158,13 +158,49 @@ def main():
         
         print(f"Epoch {epoch}/{num_epochs} Summary - Avg Loss: {avg_loss:.4f} | L1: {avg_l1:.4f} | MSE: {avg_mse:.4f} | Latent: {avg_latent:.4f}")
         
-        # Save checkpoints
+        # Save latest checkpoint at every epoch for reconstruction/inference
+        save_checkpoint(model, optimizer, epoch, avg_loss, latest_checkpoint)
+        print(f"Updated latest checkpoint at {latest_checkpoint}")
+        
+        # Run reconstruction inference
+        print(f"Running reconstruction inference for epoch {epoch}...")
+        try:
+            import subprocess
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            local_wav_dir = os.path.join(project_root, "data", "wavs")
+            wav_path = None
+            if os.path.exists(local_wav_dir):
+                local_wavs = [os.path.join(local_wav_dir, f) for f in os.listdir(local_wav_dir) if f.endswith(".wav")]
+                if len(local_wavs) > 0:
+                    wav_path = local_wavs[0]
+            
+            if wav_path is None:
+                wav_files = [os.path.join(wav_dir, f) for f in os.listdir(wav_dir) if f.endswith(".wav")]
+                if len(wav_files) > 0:
+                    wav_path = wav_files[0]
+                    
+            if wav_path is not None:
+                cmd = [
+                    sys.executable,
+                    os.path.join(os.path.dirname(os.path.abspath(__file__)), "inference_reconstruct.py"),
+                    "--config", args.config,
+                    "--checkpoint", latest_checkpoint,
+                    "--wav_path", wav_path,
+                    "--out_dir", "output_reconstruct",
+                    "--plot"
+                ]
+                subprocess.run(cmd, check=True)
+                print(f"Reconstruction completed for epoch {epoch}.")
+            else:
+                print("Warning: No wav files found to run reconstruction.")
+        except Exception as e:
+            print(f"Error running reconstruction inference: {e}")
+            
+        # Save periodic checkpoints
         if epoch % save_every == 0 or epoch == num_epochs:
             ckpt_path = os.path.join(checkpoint_dir, f"checkpoint_epoch_{epoch}.pt")
             save_checkpoint(model, optimizer, epoch, avg_loss, ckpt_path)
-            print(f"Saved checkpoint to {ckpt_path}")
-            save_checkpoint(model, optimizer, epoch, avg_loss, latest_checkpoint)
-            print(f"Updated latest checkpoint at {latest_checkpoint}")
+            print(f"Saved periodic checkpoint to {ckpt_path}")
 
 if __name__ == "__main__":
     main()
