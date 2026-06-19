@@ -126,6 +126,7 @@ async def submit_tts(request: TTSRequest) -> TTSSubmitResponse:
     """
     # Validate model tồn tại
     available = {m.name for m in scan_models()}
+    available.add("omnivoice")
     if request.model_name not in available:
         raise HTTPException(
             status_code=400,
@@ -135,10 +136,22 @@ async def submit_tts(request: TTSRequest) -> TTSSubmitResponse:
 
     if not request.target_text.strip():
         raise HTTPException(status_code=400, detail="target_text không được để trống.")
-    if not request.ref_text.strip():
-        raise HTTPException(status_code=400, detail="ref_text không được để trống.")
-    if not request.ref_audio_b64.strip():
-        raise HTTPException(status_code=400, detail="ref_audio_b64 không được để trống.")
+    
+    # Chỉ bắt buộc ref_text và ref_audio_b64 khi không phải là omnivoice
+    is_omnivoice = request.model_name == "omnivoice"
+    is_omnivoice_design = is_omnivoice and request.omnivoice_mode == "design"
+    is_omnivoice_clone = is_omnivoice and not is_omnivoice_design
+
+    if not is_omnivoice:
+        # F5-TTS: ref_text và ref_audio_b64 bắt buộc
+        if not request.ref_text or not request.ref_text.strip():
+            raise HTTPException(status_code=400, detail="ref_text không được để trống.")
+        if not request.ref_audio_b64 or not request.ref_audio_b64.strip():
+            raise HTTPException(status_code=400, detail="ref_audio_b64 không được để trống.")
+    elif is_omnivoice_clone:
+        # OmniVoice Clone: chỉ cần ref_audio, ref_text có thể để trống (Whisper tự transcribe)
+        if not request.ref_audio_b64 or not request.ref_audio_b64.strip():
+            raise HTTPException(status_code=400, detail="ref_audio_b64 không được để trống.")
 
     job_id = queue_manager.submit_job(
         model_name=request.model_name,
@@ -148,6 +161,21 @@ async def submit_tts(request: TTSRequest) -> TTSSubmitResponse:
         split_sentences=request.split_sentences,
         min_words=request.min_words,
         nfe_step=request.nfe_step,
+        omnivoice_mode=request.omnivoice_mode,
+        language=request.language,
+        gender=request.gender,
+        age=request.age,
+        pitch=request.pitch,
+        style=request.style,
+        english_accent=request.english_accent,
+        chinese_dialect=request.chinese_dialect,
+        speed=request.speed,
+        duration=request.duration,
+        preprocess_prompt=request.preprocess_prompt,
+        postprocess_output=request.postprocess_output,
+        instruct=request.instruct,
+        guidance_scale=request.guidance_scale,
+        denoise=request.denoise,
     )
     logger.info("Job submitted: %s (model=%s)", job_id, request.model_name)
     return TTSSubmitResponse(job_id=job_id)

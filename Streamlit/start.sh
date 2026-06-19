@@ -20,11 +20,19 @@ cd "$SCRIPT_DIR"
 mkdir -p outputs
 
 echo "╔══════════════════════════════════════════════════╗"
-echo "║         F5-TTS Vietnamese Demo Launcher          ║"
+echo "║         F5-TTS & OmniVoice Demo Launcher         ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
+echo "🎙️ Khởi động OmniVoice Gradio server (port 8001)..."
+PYTHONPATH=/home/reg/TTS_DATA/OmniVoice /home/reg/miniconda3/envs/data_setup/bin/python -m omnivoice.cli.demo --port 8001 --device cuda:0 &
+OMNIVOICE_PID=$!
+echo "   → PID: $OMNIVOICE_PID"
+
+sleep 3
+
+echo ""
 echo "📡 Khởi động FastAPI backend (port 8000)..."
-uvicorn backend.api:app --host 0.0.0.0 --port 8000 &
+/home/reg/miniconda3/envs/data_setup/bin/uvicorn backend.api:app --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 echo "   → PID: $BACKEND_PID"
 
@@ -32,20 +40,21 @@ sleep 2
 
 echo ""
 echo "🌐 Khởi động Streamlit frontend (port 8501)..."
-streamlit run app.py --server.port 8501 --server.address 0.0.0.0 &
+/home/reg/miniconda3/envs/data_setup/bin/streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.enableCORS false --server.enableXsrfProtection false &
 FRONTEND_PID=$!
 echo "   → PID: $FRONTEND_PID"
 
 echo ""
-echo "✅ Cả hai service đã khởi động!"
-echo "   API:       http://localhost:8000"
-echo "   API Docs:  http://localhost:8000/docs"
-echo "   Frontend:  http://localhost:8501"
+echo "✅ Tất cả dịch vụ đã khởi động!"
+echo "   OmniVoice Gradio: http://localhost:8001"
+echo "   FastAPI API:      http://localhost:8000"
+echo "   API Docs:         http://localhost:8000/docs"
+echo "   Streamlit:        http://localhost:8501"
 echo ""
-echo "Nhấn Ctrl+C để dừng cả hai service."
+echo "Nhấn Ctrl+C để dừng tất cả dịch vụ."
 echo ""
 
 # Cleanup on exit
-trap "echo 'Stopping...'; kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit 0" INT TERM
+trap "echo 'Stopping...'; kill $BACKEND_PID $FRONTEND_PID $OMNIVOICE_PID 2>/dev/null; exit 0" INT TERM
 
-wait $BACKEND_PID $FRONTEND_PID
+wait $BACKEND_PID $FRONTEND_PID $OMNIVOICE_PID

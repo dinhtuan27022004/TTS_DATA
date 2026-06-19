@@ -20,9 +20,9 @@ class JobStatus(str, Enum):
 
 class TTSRequest(BaseModel):
     """Request body cho POST /api/tts."""
-    model_name: str = Field(..., description="Tên model checkpoint, vd: f5-tts-70000")
-    ref_audio_b64: str = Field(..., description="Base64-encoded WAV bytes của reference audio")
-    ref_text: str = Field(..., description="Transcript tương ứng với reference audio")
+    model_name: str = Field(..., description="Tên model checkpoint, vd: f5-tts-70000, hoặc 'omnivoice'")
+    ref_audio_b64: Optional[str] = Field(None, description="Base64-encoded WAV bytes của reference audio")
+    ref_text: Optional[str] = Field(None, description="Transcript tương ứng với reference audio")
     target_text: str = Field(..., description="Nội dung text cần tổng hợp thành giọng nói")
     split_sentences: bool = Field(
         False,
@@ -35,10 +35,26 @@ class TTSRequest(BaseModel):
     )
     nfe_step: int = Field(
         64,
-        ge=16,
+        ge=4,
         le=128,
-        description="Số bước chạy DiT (NFE Steps) cho ODE solver.",
+        description="Số bước chạy (NFE Steps / Inference Steps).",
     )
+    # OmniVoice specific parameters
+    omnivoice_mode: Optional[str] = Field(None, description="Mode: 'clone' hoặc 'design'")
+    language: Optional[str] = Field(None, description="Ngôn ngữ cho OmniVoice")
+    gender: Optional[str] = Field(None, description="Giới tính")
+    age: Optional[str] = Field(None, description="Độ tuổi")
+    pitch: Optional[str] = Field(None, description="Tông giọng")
+    style: Optional[str] = Field(None, description="Phong cách")
+    english_accent: Optional[str] = Field(None, description="Giọng tiếng Anh")
+    chinese_dialect: Optional[str] = Field(None, description="Giọng phương ngôn Trung Quốc")
+    speed: float = Field(1.0, description="Tốc độ đọc")
+    duration: Optional[float] = Field(None, description="Thời lượng audio (giây)")
+    preprocess_prompt: bool = Field(True, description="Tiền xử lý prompt")
+    postprocess_output: bool = Field(True, description="Hậu xử lý đầu ra")
+    instruct: Optional[str] = Field(None, description="Lời nhắc / Hướng dẫn")
+    guidance_scale: float = Field(2.0, description="Guidance Scale (CFG)")
+    denoise: bool = Field(True, description="Bật/Tắt khử nhiễu")
 
 
 class TTSSubmitResponse(BaseModel):

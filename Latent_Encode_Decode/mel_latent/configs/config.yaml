@@ -1,0 +1,20 @@
+# Mel Spectrogram Settings
+sample_rate: 24000
+n_mels: 100
+n_fft: 1024
+hop_length: 256
+win_length: 1024
+
+# Model Settings
+latent_dim: 64
+
+# Training Settings
+batch_size: 100
+learning_rate: 0.001
+num_epochs: 100
+save_every: 5
+seed: 42
+
+# Paths
+wav_dir: "/home/reg/TTS_DATA/data/YTDT2"
+checkpoint_dir: "checkpoints"
