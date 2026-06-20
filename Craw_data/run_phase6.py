@@ -16,7 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
 # --- CẤU HÌNH ---
-INPUT_DIR = "Craw_data/Youtube_Data/Step_2"
+INPUT_DIR = "/home/reg/TTS_DATA/Craw_data/Youtube_Data/Step_2"
 SKIP_UNTIL_FILE = ""  # Điền tên file .wav để bỏ qua từ đầu đến file này (kể cả nó). VD: "abc.wav"
 QUEUE_BATCH_SIZE = 16
 QUEUE_TIMEOUT = 0.2
@@ -133,18 +133,7 @@ def build_approx_word_timestamps(text, duration):
         for i, word in enumerate(tokens)
     ]
 
-def write_transcript_json(json_path, wav_path, text, duration, words, segments, engine):
-    payload = {
-        "audio_path": os.path.abspath(wav_path),
-        "text": text,
-        "duration": round(float(duration), 3),
-        "engine": engine,
-        "word_count": len(words),
-        "words": words,
-        "segments": segments,
-    }
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+
 
 def main():
 
@@ -161,17 +150,24 @@ def main():
     def process_file(wav_path):
         filename = os.path.basename(wav_path)
         txt_path = os.path.splitext(wav_path)[0] + ".txt"
-        json_path = os.path.splitext(wav_path)[0] + ".json"
             
         try:
+            # Kiểm tra thời lượng file wav trước khi chạy Whisper
+            duration = get_audio_duration(wav_path)
+            if duration < 0.3 or duration > 30:
+                logger.warning(f"File {filename} có thời lượng không hợp lệ ({duration:.2f}s). Tiến hành XÓA file.")
+                if os.path.exists(wav_path):
+                    os.remove(wav_path)
+                if os.path.exists(txt_path):
+                    os.remove(txt_path)
+                return
+
             # Chạy Whisper để nhận diện giọng nói
             segments, _ = model.transcribe(wav_path, beam_size=5, language="vi", word_timestamps=True)
             segments = list(segments)
             
             # Ghép các đoạn text lại với nhau (bỏ qua các khoảng trắng thừa)
             text_content = " ".join([seg.text.strip() for seg in segments]).strip()
-            word_timestamps, segment_timestamps = build_word_timestamps_from_whisper(segments)
-            transcript_engine = "faster-whisper-large-v3"
             
             # Kiểm tra thời lượng file wav
             duration = get_audio_duration(wav_path)
@@ -207,45 +203,24 @@ def main():
                             os.remove(wav_path)
                         if os.path.exists(txt_path):
                             os.remove(txt_path)
-                        if os.path.exists(json_path):
-                            os.remove(json_path)
                         return
                     else:
                         text_content = cf_text
-                        word_timestamps = build_approx_word_timestamps(text_content, duration)
-                        segment_timestamps = [{
-                            "start": 0.0,
-                            "end": round(float(duration), 3),
-                            "text": text_content,
-                            "source": "estimated",
-                        }]
-                        transcript_engine = "chunkformer-ctc-large-vie"
                 except Exception as e:
                     logger.error(f"Lỗi khi chạy fallback ChunkFormer cho {filename}: {e}. Tiến hành XÓA file.")
                     if os.path.exists(wav_path):
                         os.remove(wav_path)
                     if os.path.exists(txt_path):
                         os.remove(txt_path)
-                    if os.path.exists(json_path):
-                        os.remove(json_path)
                     return
             
             # Ghi ra file .txt
             with open(txt_path, "w", encoding="utf-8") as f:
                 f.write(text_content)
-            write_transcript_json(
-                json_path=json_path,
-                wav_path=wav_path,
-                text=text_content,
-                duration=duration,
-                words=word_timestamps,
-                segments=segment_timestamps,
-                engine=transcript_engine,
-            )
                 
         except Exception as e:
             logger.error(f"Lỗi khi transcribe file {filename}: {e}")
-
+ 
     # 2. Vòng lặp liên tục
     while True:
         wav_files = glob.glob(os.path.join(INPUT_DIR, "*.wav"))
@@ -263,8 +238,7 @@ def main():
         files_to_process = []
         for wav_path in wav_files:
             txt_path = os.path.splitext(wav_path)[0] + ".txt"
-            json_path = os.path.splitext(wav_path)[0] + ".json"
-            if not os.path.exists(txt_path) or not os.path.exists(json_path):
+            if not os.path.exists(txt_path):
                 files_to_process.append(wav_path)
                 
         if not files_to_process:
